@@ -16,15 +16,9 @@ from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
 from PyQt6.QtGui import QFont, QFontDatabase, QTextCursor, QPainter, QColor, QLinearGradient, QPen
 
 # Load config from setup wizard, or use defaults
-CONFIG_PATH = os.path.expanduser('~/gramps-transcriber/config.json')
+from gramps_config import find_config_file, load_config
 
-def load_config():
-    try:
-        with open(CONFIG_PATH) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-
+CONFIG_PATH = find_config_file()
 CONFIG = load_config()
 
 # Paths

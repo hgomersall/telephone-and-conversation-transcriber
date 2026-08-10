@@ -1,33 +1,28 @@
 #!/usr/bin/env python3
 """Gramps Transcriber — Setup Wizard (runs on port 8080)"""
 
-import json
 import os
 import re
 import subprocess
+import sys
 import time
 import struct
 
 from flask import Flask, render_template, request, jsonify
 
+# The wizard lives in setup/ — put the repo root on the path so it shares the
+# same config resolution as caption_app.py.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from gramps_config import (  # noqa: E402
+    REPO_DIR, load_config, read_raw_config, save_config,
+)
+
 app = Flask(__name__)
 
-CONFIG_PATH = os.path.expanduser('~/gramps-transcriber/config.json')
-CREDENTIALS_PATH = os.path.expanduser('~/gramps-transcriber/credentials.py')
-
-
-def load_config():
-    try:
-        with open(CONFIG_PATH) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-
-
-def save_config(data):
-    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-    with open(CONFIG_PATH, 'w') as f:
-        json.dump(data, f, indent=4)
+# credentials.py is imported by caption_app.py, so it has to sit next to it in
+# the repo root regardless of where config.json ends up.
+CREDENTIALS_PATH = os.path.join(REPO_DIR, 'credentials.py')
 
 
 def save_credentials(deepgram_key=None, azure_key=None, azure_region=None):
@@ -115,7 +110,7 @@ def get_service_status(service_name):
 
 @app.route('/')
 def index():
-    config = load_config()
+    config = load_config(verbose=False)
     return render_template('index.html', config=config)
 
 
@@ -137,7 +132,10 @@ def api_test_audio():
 def api_save():
     data = request.get_json() or {}
 
-    config = {
+    # Start from what's on disk so hand-added keys the wizard doesn't know
+    # about survive a save.
+    config = read_raw_config()
+    config.update({
         'room_device': data.get('room_device', ''),
         'phone_device': data.get('phone_device', ''),
         'speech_mode': data.get('speech_mode', 'online'),
@@ -152,7 +150,7 @@ def api_save():
         'openai_key': data.get('openai_key', ''),
         'google_key': data.get('google_key', ''),
         'gateway_ip': data.get('gateway_ip', ''),
-    }
+    })
 
     save_config(config)
 
@@ -178,7 +176,7 @@ def api_save():
 def api_status():
     caption = get_service_status('caption')
     mute = get_service_status('gramps-mute')
-    config = load_config()
+    config = load_config(verbose=False)
     configured = bool(config.get('room_device') or config.get('deepgram_key'))
     return jsonify({
         'caption': caption,

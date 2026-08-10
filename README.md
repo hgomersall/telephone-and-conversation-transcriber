@@ -153,6 +153,29 @@ When a landline call is detected via the USB phone recorder, the system automati
 2. Shows a phone icon in the caption bar
 3. Switches back to room mic after 10 seconds of silence
 
+## Configuration
+
+Normally the setup wizard writes the config for you and you never need to look at it. If you want to edit it by hand, copy `config.example.json` to `config.json` and change what you need — every key is optional, and anything you leave out falls back to a built-in default (see `DEFAULTS` in `gramps_config.py`).
+
+The config file is looked for in these places, in order — the first one that exists wins:
+
+| Location | Use |
+|---|---|
+| `$GRAMPS_CONFIG` | Explicit path to a config file — overrides everything else |
+| `<repo>/config.json` | Alongside the code, wherever you cloned it |
+| `$XDG_CONFIG_HOME/gramps-transcriber/config.json` | Standard Linux location (usually `~/.config/...`) |
+| `~/gramps-transcriber/config.json` | Where the installer puts it |
+
+On a Raspberry Pi set up with the installer, the checkout *is* `~/gramps-transcriber`, so the second and fourth entries are the same file — nothing changes for existing installs.
+
+The other locations are there for running the transcriber somewhere other than a Pi. To test against a throwaway config without touching your real one:
+
+```bash
+GRAMPS_CONFIG=/path/to/test-config.json ~/gramps-env/bin/python caption_app.py
+```
+
+The app prints which config it loaded at startup. A missing, unreadable or malformed config file is never fatal — it logs the problem and carries on with defaults, so the device always comes up.
+
 ## Manual Setup (Advanced)
 
 If you prefer to set things up by hand, or the easy installer doesn't work for your setup:
@@ -249,6 +272,8 @@ sudo systemctl enable --now caption-watchdog.timer display-watchdog.timer networ
 | File | Purpose |
 |------|---------|
 | `caption_app.py` | Main application — UI, transcription, phone switching |
+| `gramps_config.py` | Config loading — search order, defaults, saving |
+| `config.example.json` | Template for `config.json` (all keys optional) |
 | `mute_helper.py` | Phone activity detector — monitors USB recorder |
 | `install.sh` | One-line installer for fresh Raspberry Pi |
 | `setup/` | Web setup wizard (Flask app on port 8080) |

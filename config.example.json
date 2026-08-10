@@ -1,0 +1,21 @@
+{
+    "_comment": "Copy to config.json and edit. Every key is optional — anything you leave out (or leave as an empty string) falls back to the default shown in gramps_config.py DEFAULTS. Searched in order: $GRAMPS_CONFIG, <repo>/config.json, $XDG_CONFIG_HOME/gramps-transcriber/config.json, ~/gramps-transcriber/config.json.",
+
+    "room_device": "",
+    "phone_device": "",
+
+    "speech_mode": "offline",
+    "stt_provider": "deepgram",
+    "offline_model": "faster-whisper",
+
+    "deepgram_key": "",
+    "assemblyai_key": "",
+    "azure_key": "",
+    "azure_region": "uksouth",
+    "groq_key": "",
+    "interfaze_key": "",
+    "openai_key": "",
+    "google_key": "",
+
+    "gateway_ip": ""
+}
