@@ -1,0 +1,41 @@
+[project]
+name = "gramps-transcriber"
+version = "0.1.0"
+description = "Live captions for landline calls and in-room conversation"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+
+# Everything the appliance needs from PyPI. Two things it also needs are
+# deliberately NOT here:
+#
+#   PyQt6            — comes from apt (python3-pyqt6 + qt6-qpa-plugins). The
+#                      apt build is wired to the Pi's Qt platform plugins;
+#                      PyPI's PyQt6-Qt6 bundles its own Qt and risks a
+#                      plugin mismatch, which on a touchscreen appliance means
+#                      a blank screen. See the "gui" extra for dev machines.
+#   systemd.daemon   — comes from apt (python3-systemd). Optional at runtime;
+#                      caption_app.py runs fine without it.
+dependencies = [
+    "numpy",
+    "requests",
+    "websocket-client",
+    "sounddevice",      # mute_helper.py — phone activity detection
+    "flask",            # setup/app.py — the setup wizard
+    "faster-whisper",   # default offline engine
+    "vosk",             # last-resort offline engine; other engines fall back to it
+]
+
+[project.optional-dependencies]
+# Azure is the only cloud provider needing an SDK — the rest go over plain
+# HTTP/websockets. caption_app.py imports it lazily and says so if missing.
+azure = ["azure-cognitiveservices-speech"]
+
+# For running on a machine without apt's python3-pyqt6 (i.e. not a Pi).
+# Do not install this on the appliance.
+gui = ["PyQt6"]
+
+[tool.uv]
+# Flat scripts run by path, and the systemd units reference those paths.
+# Nothing here should be built or installed as a package.
+package = false

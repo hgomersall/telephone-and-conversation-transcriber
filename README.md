@@ -184,11 +184,20 @@ If you prefer to set things up by hand, or the easy installer doesn't work for y
 
 ```bash
 python3 -m venv ~/gramps-env --system-site-packages
-source ~/gramps-env/bin/activate
-pip install vosk sounddevice numpy websocket-client flask requests
-# Optional: pip install faster-whisper scipy
-# Optional: pip install azure-cognitiveservices-speech
+~/gramps-env/bin/pip install -r requirements.txt
+# Optional, only if you use Azure Speech:
+~/gramps-env/bin/pip install azure-cognitiveservices-speech
 ```
+
+`--system-site-packages` is required — PyQt6 comes from apt (`python3-pyqt6`), not pip, so the venv has to be able to see it.
+
+`requirements.txt` is a pinned lockfile generated from `pyproject.toml`. If you change a dependency, regenerate it:
+
+```bash
+uv pip compile pyproject.toml --universal --python-version 3.11 -o requirements.txt
+```
+
+`--universal` matters: it resolves for every platform at once, so a lockfile compiled on an x86 laptop is still correct on an ARM Pi.
 
 ### 2. Download Vosk model (offline fallback)
 
@@ -241,6 +250,44 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now caption-watchdog.timer display-watchdog.timer network-watchdog.timer
 ```
 
+## Development
+
+Running on a normal Linux machine rather than a Pi.
+
+System libraries first — these aren't Python packages and no amount of pip or uv will supply them:
+
+```bash
+sudo apt install alsa-utils libportaudio2      # arecord/amixer, and sounddevice
+```
+
+Then either of two routes.
+
+**Matching the appliance** (apt's Qt, same as the Pi — best fidelity for testing display behaviour):
+
+```bash
+sudo apt install python3-pyqt6 qt6-qpa-plugins python3-venv
+python3 -m venv ~/gramps-env --system-site-packages
+~/gramps-env/bin/pip install -r requirements.txt
+~/gramps-env/bin/python caption_app.py
+```
+
+**With [uv](https://docs.astral.sh/uv/)** (isolated, no apt Python packages):
+
+```bash
+sudo apt install libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0
+uv run --extra gui caption_app.py
+```
+
+The `gui` extra pulls PyQt6 from PyPI, because `uv run` builds an isolated environment that can't see apt's copy. PyPI's Qt bundles Qt itself but still links against the system GL and xcb libraries above — without them you get `ImportError: libGL.so.1`. Most desktop installs already have them; minimal and headless ones don't.
+
+**Don't install the `gui` extra on the appliance** — the Pi should keep apt's `python3-pyqt6`, which is wired to the platform plugins its touchscreen needs.
+
+Put a `config.json` in the repo root (it's gitignored) and it will be picked up ahead of the installed one — see [Configuration](#configuration). To point at a throwaway config instead:
+
+```bash
+GRAMPS_CONFIG=/tmp/test.json uv run --extra gui caption_app.py
+```
+
 ## Architecture
 
 ```
@@ -273,6 +320,8 @@ sudo systemctl enable --now caption-watchdog.timer display-watchdog.timer networ
 |------|---------|
 | `caption_app.py` | Main application — UI, transcription, phone switching |
 | `gramps_config.py` | Config loading — search order, defaults, saving |
+| `pyproject.toml` | Dependency declaration and optional extras |
+| `requirements.txt` | Pinned lockfile, generated from `pyproject.toml` |
 | `config.example.json` | Template for `config.json` (all keys optional) |
 | `mute_helper.py` | Phone activity detector — monitors USB recorder |
 | `install.sh` | One-line installer for fresh Raspberry Pi |

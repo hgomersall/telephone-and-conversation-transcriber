@@ -149,18 +149,47 @@ ok "Python environment ready"
 
 step 5 "Installing Python packages..."
 
-"$VENV_DIR/bin/pip" install --quiet --upgrade pip 2>/dev/null || warn "Couldn't upgrade pip (continuing with existing version)"
-"$VENV_DIR/bin/pip" install --quiet \
-    vosk \
-    faster-whisper \
-    sounddevice \
-    numpy \
-    websocket-client \
-    flask \
-    requests \
-    || fail "Couldn't install Python packages."
+REQUIREMENTS="$INSTALL_DIR/requirements.txt"
 
-ok "All Python packages installed"
+if [ ! -f "$REQUIREMENTS" ]; then
+    fail "requirements.txt not found. The download may be incomplete — try running the installer again."
+fi
+
+# uv resolves and installs far faster than pip, which is worth real minutes on
+# a Pi. It is only ever an accelerator here: every failure path below falls
+# back to pip, so a fresh install can never be blocked by uv being missing,
+# unreachable or broken.
+UV_BIN=""
+if command -v uv &>/dev/null; then
+    UV_BIN="$(command -v uv)"
+elif [ -x "$HOME/.local/bin/uv" ]; then
+    UV_BIN="$HOME/.local/bin/uv"
+else
+    if curl -LsSf https://astral.sh/uv/install.sh 2>/dev/null | sh >/dev/null 2>&1; then
+        if [ -x "$HOME/.local/bin/uv" ]; then
+            UV_BIN="$HOME/.local/bin/uv"
+        fi
+    fi
+fi
+
+PACKAGES_INSTALLED=0
+if [ -n "$UV_BIN" ]; then
+    # Target the venv explicitly rather than relying on VIRTUAL_ENV. PyQt6 is
+    # deliberately absent from requirements.txt — it comes from apt, and the
+    # venv was created with --system-site-packages so it can see it.
+    if "$UV_BIN" pip install --quiet --python "$VENV_DIR/bin/python" -r "$REQUIREMENTS" 2>/dev/null; then
+        PACKAGES_INSTALLED=1
+        ok "All Python packages installed (uv)"
+    else
+        warn "uv couldn't install the packages — falling back to pip"
+    fi
+fi
+
+if [ "$PACKAGES_INSTALLED" -eq 0 ]; then
+    "$VENV_DIR/bin/pip" install --quiet --upgrade pip 2>/dev/null || warn "Couldn't upgrade pip (continuing with existing version)"
+    "$VENV_DIR/bin/pip" install --quiet -r "$REQUIREMENTS" || fail "Couldn't install Python packages."
+    ok "All Python packages installed (pip)"
+fi
 
 # ─── Step 6: Download offline speech model ────────────────────────────────────
 

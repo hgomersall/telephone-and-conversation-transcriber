@@ -12,6 +12,10 @@ __pycache__/
 .venv/
 venv/
 
+# uv project-mode lock. requirements.txt is the committed lockfile — it is what
+# the appliance installs from. Keeping both would let them drift apart.
+uv.lock
+
 # IDE
 .vscode/
 .idea/
