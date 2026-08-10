@@ -49,6 +49,10 @@ DEFAULTS = {
 
     # Used by the network watchdog
     'gateway_ip': None,
+
+    # Log every interim transcript, not just finals. Needed to measure
+    # time-to-first-word; far too noisy to leave on in normal running.
+    'log_interims': False,
 }
 
 

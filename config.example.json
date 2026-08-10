@@ -17,5 +17,7 @@
     "openai_key": "",
     "google_key": "",
 
-    "gateway_ip": ""
+    "gateway_ip": "",
+
+    "log_interims": false
 }

@@ -13,7 +13,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTextEdit, QLabel,
     QVBoxLayout, QHBoxLayout, QWidget, QScroller, QStackedWidget)
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
-from PyQt6.QtGui import QFont, QFontDatabase, QTextCursor, QPainter, QColor, QLinearGradient, QPen
+from PyQt6.QtGui import QFont, QFontDatabase, QTextCursor, QTextCharFormat, QPainter, QColor, QLinearGradient, QPen
 
 # Load config from setup wizard, or use defaults
 from gramps_config import find_config_file, load_config
@@ -27,7 +27,17 @@ FONT_PATH = os.path.expanduser('~/gramps-transcriber/fonts/DSEG14Classic-Bold.tt
 PHONE_MUTED_FILE = '/tmp/phone_muted'
 SILENCE_TIMEOUT = 90
 PHONE_SILENCE_TIMEOUT = 10
+# Speaker turn colours. Cycled on speaker CHANGE, not bound to identity.
+# Amber/blue is the blue-yellow axis, preserved under protanopia and deuteranopia;
+# both are kept light because an ageing lens absorbs short wavelengths.
+SPEAKER_PALETTE_DARK = ['#ffffff', '#ffb000', '#56b4e9']
+SPEAKER_PALETTE_LIGHT = ['#1a1a1a', '#8a4b00', '#00457a']
+SPEAKER_MARKER = '▸ '
 MODE_FILE = '/tmp/gramps_mode'
+
+# Interim results are logged only when this is on — one line per partial is far
+# too noisy for normal running, but it is what the latency diagnostic needs.
+LOG_INTERIMS = bool(CONFIG.get('log_interims'))
 
 # Try to load secrets — check credentials.py first, then config.json
 try:
@@ -224,6 +234,8 @@ state = TranscriptionState()
 
 class Emitter(QObject):
     new_text = pyqtSignal(str)
+    new_segment = pyqtSignal(dict)  # {'text','is_final','speech_final','speaker'} - streaming path
+    speakers_reset = pyqtSignal()   # a new STT session began; speaker labels restart
     status_changed = pyqtSignal(str)
     mode_changed = pyqtSignal(str)
     mode_ready = pyqtSignal(str)
@@ -682,7 +694,25 @@ def deepgram_thread():
         if not arecord:
             raise RuntimeError('Could not start arecord after 4 attempts')
 
-        url = f'wss://api.deepgram.com/v1/listen?model=nova-2&language=en-GB&smart_format=true&encoding=linear16&sample_rate={sample_rate}'
+        params = [
+            'model=nova-2',
+            'language=en-GB',
+            'smart_format=true',
+            'interim_results=true',
+            'endpointing=400',
+            'encoding=linear16',
+            f'sample_rate={sample_rate}',
+        ]
+        # Diarization is billed separately and is pointless on the phone tap,
+        # which already has exactly one remote talker.
+        if not state.use_phone_audio:
+            params.append('diarize_model=latest')
+        url = 'wss://api.deepgram.com/v1/listen?' + '&'.join(params)
+
+        # This is a fresh session, so Deepgram's speaker label space restarts.
+        # Covers reconnects, phone/room switches and the online retry after an
+        # offline fallback — all of them arrive here.
+        emitter.speakers_reset.emit()
 
         ws_connected = threading.Event()
         ws_error = threading.Event()
@@ -690,14 +720,35 @@ def deepgram_thread():
         def on_message(ws, message):
             try:
                 data = json.loads(message)
-                if 'channel' in data:
-                    t = data['channel']['alternatives'][0]['transcript']
-                    if t and t.strip():
-                        if data.get('speech_final', False):
-                            t = t + '\n'
-                        print(f'>>> {t.strip()}', flush=True)
-                        state.mark_success()
-                        emitter.new_text.emit(t)
+                if 'channel' not in data:
+                    return
+                alt = data['channel']['alternatives'][0]
+                t = alt.get('transcript', '')
+                is_final = bool(data.get('is_final', False))
+                speech_final = bool(data.get('speech_final', False))
+                if not t or not t.strip():
+                    # Empty finals still carry endpointing information, so they
+                    # are forwarded rather than dropped.
+                    if not is_final:
+                        return
+                else:
+                    state.mark_success()
+                speaker = None
+                words = alt.get('words') or []
+                labels = [w['speaker'] for w in words if w.get('speaker') is not None]
+                if labels:
+                    speaker = max(set(labels), key=labels.count)
+                if t.strip():
+                    if is_final:
+                        print(f'>>> [spk {speaker}] {t.strip()}', flush=True)
+                    elif LOG_INTERIMS:
+                        print(f'... {t.strip()}', flush=True)
+                emitter.new_segment.emit({
+                    'text': t,
+                    'is_final': is_final,
+                    'speech_final': speech_final,
+                    'speaker': speaker,
+                })
             except Exception as e:
                 print(f'Parse error: {e}', flush=True)
 
@@ -1458,6 +1509,10 @@ class CaptionView(QWidget):
         self.set_color(0)
         self._waiting_for_ready = False
         self._last_text_time = 0
+        self._prov_start = None      # doc position where uncommitted (interim) text begins
+        self._last_speaker = None
+        self._colour_idx = 0
+        self._last_speech_final = False  # did the last commit end an utterance?
 
     def toggle_mode(self, event):
         new_mode = 'online' if self.current_mode == 'offline' else 'offline'
@@ -1534,11 +1589,12 @@ class CaptionView(QWidget):
             self.status_label.setText('🔄')
             self.status_label.setStyleSheet('font-size: 30px; background: transparent;')
 
-    def add_text(self, t):
-        if self._waiting_for_ready:
-            self._waiting_for_ready = False
-            self.update_mode_button()
-        # Trim old text to prevent unbounded memory growth
+    def _trim_if_needed(self):
+        """Trim old text to prevent unbounded memory growth.
+
+        Only safe when nothing is provisional — removing blocks invalidates
+        self._prov_start.
+        """
         doc = self.text.document()
         if doc.blockCount() > 250:
             trim_cursor = QTextCursor(doc)
@@ -1548,6 +1604,108 @@ class CaptionView(QWidget):
                 trim_cursor.movePosition(QTextCursor.MoveOperation.NextBlock, QTextCursor.MoveMode.KeepAnchor)
             trim_cursor.removeSelectedText()
             trim_cursor.deleteChar()  # Remove the leftover empty block
+
+    def _speaker_palette(self):
+        _, _, bg_col = self.color_schemes[self.current_scheme]
+        if bg_col.lower() in ('#ffffff', '#fff'):
+            return SPEAKER_PALETTE_LIGHT
+        return SPEAKER_PALETTE_DARK
+
+    def reset_speakers(self):
+        """A new STT session began — Deepgram's speaker label space restarts.
+
+        Resuming the colour cycle across that boundary would be false
+        precision, so the cycle restarts at turn A. Any text left provisional
+        by the previous session stays on screen and is committed as-is.
+        """
+        self._prov_start = None
+        self._last_speaker = None
+        self._colour_idx = 0
+        self._last_speech_final = True  # next segment starts a fresh paragraph
+
+    def add_segment(self, seg):
+        """Streaming path: interim results overwrite, finals commit.
+
+        The provisional region runs from self._prov_start to end of document and
+        INCLUDES its leading separator, so a speaker change detected at commit
+        time can retroactively turn a space into a paragraph break.
+        """
+        text = (seg.get('text') or '').strip()
+        is_final = bool(seg.get('is_final'))
+        speech_final = bool(seg.get('speech_final'))
+        speaker = seg.get('speaker')
+
+        if self._waiting_for_ready:
+            self._waiting_for_ready = False
+            self.update_mode_button()
+
+        if not text:
+            # Deepgram sends empty finals for segments containing no speech.
+            # Commit whatever interim text is already on screen rather than
+            # deleting it — those were real words.
+            if is_final:
+                self._prov_start = None
+                self._last_speech_final = speech_final
+            return
+
+        c = self.text.textCursor()
+        if self._prov_start is None:
+            self._trim_if_needed()
+            c.movePosition(QTextCursor.MoveOperation.End)
+            self._prov_start = c.position()
+        else:
+            c.setPosition(self._prov_start)
+            c.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
+            if c.hasSelection():
+                c.removeSelectedText()
+
+        palette = self._speaker_palette()
+        colour_idx = self._colour_idx
+        turn_change = False
+        # Speaker labels firm up as evidence arrives, so only act on finals.
+        if is_final and speaker is not None and speaker != self._last_speaker:
+            if self._last_speaker is not None:
+                colour_idx = (self._colour_idx + 1) % len(palette)
+                turn_change = True
+
+        now = time.time()
+        at_start = (self._prov_start == 0)
+        if not at_start:
+            if turn_change:
+                sep = '\n\n'      # speaker change — the strongest break
+            elif self._last_speech_final:
+                sep = '\n'        # end of an utterance
+            elif self._last_text_time > 0 and (now - self._last_text_time) > 2:
+                sep = '\n'        # long gap and no speech_final arrived
+            else:
+                sep = ' '
+            c.insertText(sep)
+
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(palette[colour_idx]))
+        marker = SPEAKER_MARKER if (turn_change or at_start) else ''
+        c.insertText(marker + text, fmt)
+
+        if is_final:
+            self._prov_start = None
+            self._colour_idx = colour_idx
+            self._last_speech_final = speech_final
+            if speaker is not None:
+                self._last_speaker = speaker
+
+        self._last_text_time = now
+        self.text.setTextCursor(c)
+        self.text.ensureCursorVisible()
+
+    def add_text(self, t):
+        if self._waiting_for_ready:
+            self._waiting_for_ready = False
+            self.update_mode_button()
+        # Any provisional text from a streaming session is committed where it
+        # stands. Leaving _prov_start set would let a later interim delete
+        # everything appended here — e.g. a whole offline fallback session.
+        self._prov_start = None
+        self._trim_if_needed()
         c = self.text.textCursor()
         c.movePosition(QTextCursor.MoveOperation.End)
         now = time.time()
@@ -1613,6 +1771,8 @@ class MainWindow(QMainWindow):
 
         # Connect signals
         emitter.new_text.connect(self.on_text)
+        emitter.new_segment.connect(self.on_segment)
+        emitter.speakers_reset.connect(self.caption_view.reset_speakers)
         emitter.status_changed.connect(self.on_status_changed)
         emitter.mode_changed.connect(self.on_mode_changed)
         emitter.mode_ready.connect(self.on_mode_ready)
@@ -1834,6 +1994,14 @@ class MainWindow(QMainWindow):
         self.signal_activity()
         self.caption_view.add_text(t)
         if state.use_phone_audio:
+            state.last_phone_speech = time.time()
+
+    def on_segment(self, seg):
+        has_text = bool((seg.get('text') or '').strip())
+        if has_text:
+            self.signal_activity()
+        self.caption_view.add_segment(seg)
+        if state.use_phone_audio and has_text:
             state.last_phone_speech = time.time()
 
     def on_status_changed(self, status):

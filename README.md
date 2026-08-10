@@ -85,7 +85,8 @@ You don't need to type anything on the touchscreen. Here's how it goes:
 
 ## Features
 
-- **Live Captions** — real-time speech-to-text displayed on a touchscreen
+- **Live Captions** — words appear while the speaker is still talking, not after they stop
+- **Speaker Turn Colouring** — colour and a `▸` marker change when the speaker changes (room mic, Deepgram)
 - **7 Cloud Services** — Deepgram, AssemblyAI, Azure, Groq, Interfaze, OpenAI Whisper, Google Cloud
 - **3 Offline Engines** — Faster Whisper, Vosk, Whisper.cpp — works even without internet
 - **Dual Audio Sources** — transcribes both landline phone calls and in-room conversation
@@ -288,6 +289,14 @@ Put a `config.json` in the repo root (it's gitignored) and it will be picked up 
 GRAMPS_CONFIG=/tmp/test.json uv run --extra gui caption_app.py
 ```
 
+The caption display logic — interim results, finals, speaker turn changes — has tests that need no dependencies at all, not even PyQt:
+
+```bash
+./speaker-colour-statemachine-sim.py
+```
+
+It exits non-zero on failure. Run it before deploying anything that touches that state machine; it catches ordering bugs in seconds that would take an hour to reproduce in a live room.
+
 ## Architecture
 
 ```
@@ -322,6 +331,7 @@ GRAMPS_CONFIG=/tmp/test.json uv run --extra gui caption_app.py
 | `gramps_config.py` | Config loading — search order, defaults, saving |
 | `pyproject.toml` | Dependency declaration and optional extras |
 | `requirements.txt` | Pinned lockfile, generated from `pyproject.toml` |
+| `speaker-colour-statemachine-sim.py` | PyQt-free tests for the interim/final/speaker-change logic |
 | `config.example.json` | Template for `config.json` (all keys optional) |
 | `mute_helper.py` | Phone activity detector — monitors USB recorder |
 | `install.sh` | One-line installer for fresh Raspberry Pi |
