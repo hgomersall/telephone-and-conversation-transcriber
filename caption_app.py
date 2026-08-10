@@ -1551,16 +1551,23 @@ class CaptionView(QWidget):
         c = self.text.textCursor()
         c.movePosition(QTextCursor.MoveOperation.End)
         now = time.time()
-        has_newline = t.endswith('\n')
+        # A trailing newline means the provider signalled end-of-utterance
+        # (Deepgram's speech_final). How much space that is worth is decided
+        # here rather than by the provider.
+        ends_utterance = t.endswith('\n')
         t = t.rstrip('\n')
-        if self.text.toPlainText():
-            if self._last_text_time > 0 and (now - self._last_text_time) > 2:
+        existing = self.text.toPlainText()
+        if existing:
+            if existing.endswith('\n'):
+                pass  # previous utterance already left the break — adding a
+                      # separator here is what put a stray space on every line
+            elif self._last_text_time > 0 and (now - self._last_text_time) > 2:
                 c.insertText('\n\n')
             else:
                 c.insertText(' ')
         c.insertText(t)
-        if has_newline:
-            c.insertText('\n')
+        if ends_utterance:
+            c.insertText('\n\n')  # blank line between utterances
         self._last_text_time = now
         self.text.setTextCursor(c)
         self.text.ensureCursorVisible()
