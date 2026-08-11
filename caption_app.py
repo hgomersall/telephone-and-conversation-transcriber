@@ -41,7 +41,12 @@ from PyQt6.QtGui import QFont, QFontDatabase, QTextCursor, QTextCharFormat, QPai
 from gramps_config import find_config_file, load_config
 
 CONFIG_PATH = find_config_file()
-CONFIG = load_config()
+# Strict when a person is at the terminal — a typo'd key is silent otherwise,
+# and you lose an hour wondering why a setting has no effect. Not strict when
+# running as a service: refusing to start leaves someone with no captions at
+# all, which is a far worse outcome than one setting not applying. The problem
+# is still printed either way.
+CONFIG = load_config(strict=sys.stdout.isatty())
 
 # Paths
 VOSK_MODEL = os.path.expanduser('~/vosk-uk')

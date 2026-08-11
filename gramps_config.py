@@ -19,6 +19,7 @@ a config.json next to the code takes precedence, so you can test without
 touching the installed one.
 """
 
+import difflib
 import json
 import os
 
@@ -182,10 +183,46 @@ def _read_file(path, verbose):
     return loaded
 
 
-def load_config(verbose=True):
-    """Load config, merged over DEFAULTS. Never raises."""
+def unknown_keys(loaded):
+    """Config keys that mean nothing to the app.
+
+    Keys starting with _ are ignored on purpose — JSON has no comments, so that
+    is how you leave notes in the file.
+    """
+    return sorted(k for k in loaded
+                  if k not in DEFAULTS and not k.startswith('_'))
+
+
+def describe_unknown_keys(unknown, path):
+    """A message naming each unknown key, with a suggestion where one is close."""
+    lines = [f'Config error in {path}:']
+    for key in unknown:
+        near = difflib.get_close_matches(key, list(DEFAULTS), n=1)
+        lines.append(f'  unknown key {key!r}' +
+                     (f' — did you mean {near[0]!r}?' if near else ''))
+    lines.append('A typo here is silent: the setting you meant is simply never '
+                 'applied. Keys starting with _ are ignored, so use those for notes.')
+    return '\n'.join(lines)
+
+
+def load_config(verbose=True, strict=False):
+    """Load config, merged over DEFAULTS.
+
+    With strict, an unrecognised key raises SystemExit. Callers running
+    unattended should leave it off: a device that will not start is worse for
+    the person relying on it than one setting quietly not applying.
+    """
+    path = find_config_file()
+    raw = _read_file(path, verbose)
+    unknown = unknown_keys(raw)
+    if unknown:
+        message = describe_unknown_keys(unknown, path)
+        if strict:
+            raise SystemExit(message)
+        print(message, flush=True)
+
     config = dict(DEFAULTS)
-    for key, value in _read_file(find_config_file(), verbose).items():
+    for key, value in raw.items():
         # The setup wizard writes "" for every field left blank, which would
         # otherwise shadow a real default (e.g. azure_region).
         if value == '':

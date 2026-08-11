@@ -177,6 +177,15 @@ GRAMPS_CONFIG=/path/to/test-config.json ~/gramps-env/bin/python caption_app.py
 
 The app prints which config it loaded at startup. A missing, unreadable or malformed config file is never fatal — it logs the problem and carries on with defaults, so the device always comes up.
 
+**Unrecognised keys are reported.** A typo is otherwise silent: the setting you meant is simply never applied, and you get to wonder for an hour why changing it does nothing.
+
+```
+Config error in /home/pi/gramps-transcriber/config.json:
+  unknown key 'gate_hangover' — did you mean 'gate_hangover_s'?
+```
+
+Run from a terminal, that stops the app so you can't miss it. Run as a service it prints and carries on — a device that won't start leaves someone with no captions at all, which is worse than one setting not applying. Keys beginning with `_` are ignored, so use them for notes; JSON has no comments.
+
 ## Manual Setup (Advanced)
 
 If you prefer to set things up by hand, or the easy installer doesn't work for your setup:
