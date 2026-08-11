@@ -1100,8 +1100,16 @@ def deepgram_thread():
                         want_open = (not gating) or detector.active \
                             or (now - last_speech) < gate_hangover
 
+                        was_open = gate.open
                         for outgoing in gate.feed(chunk, want_open):
                             ws.send(outgoing, opcode=2)
+                        if gating and gate.open != was_open and CONFIG.get('log_vad'):
+                            # Distinct from the VAD lines: the detector reports
+                            # whether anyone is speaking, this reports whether
+                            # audio is actually being transmitted. They differ
+                            # by gate_hangover_s, which is the point.
+                            print(f'GATE {time.time():.3f} '
+                                  f'{"open" if gate.open else "closed"}', flush=True)
                         if not gate.open:
                             if now - last_keepalive >= keepalive_every:
                                 # Text frame. Sent as binary it would be treated
