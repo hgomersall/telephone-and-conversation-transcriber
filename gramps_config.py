@@ -78,7 +78,17 @@ DEFAULTS = {
     'log_vad': True,
 
     # Colour and mark caption text when the speaker changes (Deepgram, room mic).
-    # Mutually exclusive with vad_gate — see below.
+    #
+    # Mutually exclusive with vad_gate, and this one wins. Withholding audio
+    # makes Deepgram's speaker labels collapse intermittently — sometimes fine,
+    # sometimes every utterance comes back as speaker 0. Intermittent is why
+    # this is an exclusion rather than a setting to tune: a colour change that
+    # only sometimes means a new speaker is worse than none at all, because
+    # then no colour change means nothing either, and the reader cannot tell
+    # which run they are looking at.
+    #
+    # Set this false if the cost saving matters more than knowing who is
+    # talking. Phone calls are gated regardless — they never had diarization.
     'speaker_colours': True,
 
     # Gating the Deepgram stream. Deepgram bills on audio sent rather than on

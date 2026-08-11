@@ -363,6 +363,19 @@ Deepgram bills on audio *sent*, not on connection time, and `KeepAlive` messages
 
 While nobody is speaking, audio is held in a ring buffer and a `KeepAlive` goes out every few seconds. When speech starts, that buffer is flushed first and then audio streams live. The buffer is what stops the first word being clipped: a detector only knows speech began after hearing some of it, and the onset of a word is its quietest part.
 
+**Gating and speaker colouring cannot both be on.** Withholding audio makes Deepgram's speaker labels collapse — intermittently, which is the problem. Tested against long hangovers and a stream primed from the start, it worked occasionally and failed the rest of the time; the mechanism is undocumented and we could not pin it down.
+
+Intermittent is worse than broken here. Colour means "someone else is speaking", so if it only sometimes means that, the *absence* of a colour change stops meaning anything either, and a reader who cannot hear the room has no way to tell a good run from a bad one.
+
+`speaker_colours` wins by default, and the app says so at startup rather than quietly giving you a broken version of one:
+
+```
+Gate off: speaker colours need an unbroken stream, and the two do not work
+together. Set speaker_colours=false to gate the audio instead.
+```
+
+Phone calls are gated either way — the phone tap never had diarization, so there is nothing to lose there.
+
 Set `vad_gate: false` to stream continuously as before. `preroll_s` (default 0.5) trades billed audio against safety margin at the start of an utterance — measured against real speech, 0.5 s transmits from about 470 ms before the first sound, for roughly 2% more billed audio than 0.1 s.
 
 The saving is reported directly rather than inferred from a bill (part of `log_vad`, on by default):
