@@ -19,5 +19,16 @@
 
     "gateway_ip": "",
 
-    "log_interims": false
+    "log_interims": false,
+
+    "offline_vad": true,
+    "vad_threshold": 0.5,
+    "vad_min_speech_ms": 250,
+    "vad_min_silence_ms": 500,
+    "vad_hangover_s": 1.0,
+    "vad_indicator": true,
+    "log_vad": false,
+
+    "offline_chunk_s": 3,
+    "offline_max_chunk_s": 6
 }

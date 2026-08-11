@@ -8,6 +8,7 @@ import re
 import time
 import queue
 import json
+import numpy as np
 from datetime import datetime
 
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTextEdit, QLabel,
@@ -236,6 +237,7 @@ class Emitter(QObject):
     new_text = pyqtSignal(str)
     new_segment = pyqtSignal(dict)  # {'text','is_final','speech_final','speaker'} - streaming path
     speakers_reset = pyqtSignal()   # a new STT session began; speaker labels restart
+    vad_state = pyqtSignal(bool)    # speech present / absent, for the status indicator
     status_changed = pyqtSignal(str)
     mode_changed = pyqtSignal(str)
     mode_ready = pyqtSignal(str)
@@ -243,6 +245,152 @@ class Emitter(QObject):
 
 emitter = Emitter()
 
+
+
+def status_display(status, speaking):
+    """(text, stylesheet) for a status indicator.
+
+    Shared by the caption and clock views so the two can never disagree.
+    Faults outrank speech activity — an error must never be masked by the
+    listening indicator.
+    """
+    fault = {
+        'no-key': ('⚠️ NO KEY', '#ff0000', '#330000'),
+        'error': ('⚠️ ERROR', '#ff0000', '#330000'),
+        'offline-fallback': ('⚠️ OFFLINE', '#ffaa00', '#332200'),
+    }.get(status)
+    if fault:
+        text, fg, bg = fault
+        return text, (f'color: {fg}; background: {bg}; padding: 8px 15px; '
+                      'border-radius: 10px; font-size: 18px; font-weight: bold;')
+
+    if status == 'connecting':
+        return '🔌', 'font-size: 30px; background: transparent;'
+    if status == 'switching':
+        return '⏳', 'font-size: 30px; background: transparent;'
+    if status == 'restarting':
+        return '🔄', 'font-size: 30px; background: transparent;'
+
+    if status in ('vosk', 'deepgram', 'assemblyai', 'azure', 'google', 'openai',
+                  'groq', 'interfaze', 'whisper', 'faster-whisper'):
+        # Dim when nothing is being said, bright when it is. On the clock view
+        # this is the only evidence the device is still hearing anything.
+        if CONFIG.get('vad_indicator', True) and not speaking:
+            return '🎤', 'font-size: 30px; background: transparent; opacity: 0.4; color: #666666;'
+        return '🎤', 'font-size: 30px; background: transparent;'
+
+    return '', 'background: transparent;'
+
+
+class SpeechDetector:
+    """Silero VAD over a raw PCM stream — reports whether speech is present.
+
+    Observational only: it never withholds audio. Feed it the same bytes that
+    go to the recogniser and read `speaking`, or connect to the vad_state
+    signal for transitions.
+
+    Unlike the fixed `energy < 0.005` threshold it replaces, this is not a
+    function of amplitude, so changing the mic gain cannot break it.
+
+    The model zeroes its recurrent state on every call, so frames are batched
+    into a longer window to give it some context rather than asking it about
+    each 32 ms in isolation.
+    """
+
+    BATCH_FRAMES = 8  # ~256 ms at 16 kHz
+
+    def __init__(self, sample_rate, label=''):
+        self.sample_rate = sample_rate
+        self.label = label
+        self.enabled = False
+        self.speaking = False
+        self._model = None
+        self._buf = np.empty(0, dtype=np.float32)
+        # Durations are measured in AUDIO time, not wall-clock. The offline loop
+        # blocks inside model.transcribe() for seconds at a time, so wall-clock
+        # would run on while no audio was being consumed and the hangover would
+        # expire against silence that never happened.
+        self._t = 0.0
+        self._last_speech = 0.0
+        self._speech_since = 0.0
+        self._failures = 0
+        # Silero wants 512-sample frames at 16 kHz, 256 at 8 kHz.
+        self._frame = 512 if sample_rate >= 16000 else 256
+        self._threshold = float(CONFIG.get('vad_threshold', 0.5))
+        self._min_speech = float(CONFIG.get('vad_min_speech_ms', 250)) / 1000.0
+        self._min_silence = float(CONFIG.get('vad_min_silence_ms', 500)) / 1000.0
+        self._hangover = float(CONFIG.get('vad_hangover_s', 1.0))
+
+        try:
+            import os as _os
+            from faster_whisper.vad import SileroVADModel, get_assets_path
+            self._model = SileroVADModel(
+                _os.path.join(get_assets_path(), 'silero_vad_v6.onnx')
+            )
+            self.enabled = True
+            print(f'VAD ready{self.label} @ {sample_rate}Hz', flush=True)
+        except Exception as e:
+            # Never fatal — the recogniser works without us.
+            print(f'VAD unavailable{self.label}: {e}', flush=True)
+
+    def feed(self, pcm_bytes):
+        """Push raw S16_LE mono audio. Returns True if the state changed."""
+        if not self.enabled:
+            return False
+        try:
+            samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+            self._buf = np.concatenate((self._buf, samples))
+            window = self._frame * self.BATCH_FRAMES
+            changed = False
+            while len(self._buf) >= window:
+                probs = self._model(self._buf[:window], num_samples=self._frame)
+                self._buf = self._buf[window:]
+                self._t += window / float(self.sample_rate)
+                if self._update(float(np.max(probs))):
+                    changed = True
+            return changed
+        except Exception as e:
+            self._failures += 1
+            if self._failures >= 5:
+                self.enabled = False
+                print(f'VAD disabled after repeated errors{self.label}: {e}', flush=True)
+            return False
+
+    def _update(self, prob):
+        """Apply threshold, minimum durations and hangover. Returns True on change.
+
+        `now` is audio time — seconds of audio fed in, not seconds elapsed.
+        """
+        now = self._t
+        loud = prob >= self._threshold
+
+        if loud:
+            self._last_speech = now
+            if not self.speaking:
+                if self._speech_since == 0.0:
+                    self._speech_since = now
+                # Require sustained speech so one noisy frame cannot latch it on.
+                # The window this is measured over is BATCH_FRAMES long, so a
+                # min_speech shorter than that resolves on the first batch.
+                if now - self._speech_since >= self._min_speech:
+                    self.speaking = True
+                    self._log(True)
+                    return True
+            return False
+
+        self._speech_since = 0.0
+        if self.speaking and now - self._last_speech >= max(self._min_silence, self._hangover):
+            self.speaking = False
+            self._log(False)
+            return True
+        return False
+
+    def _log(self, speaking):
+        if CONFIG.get('log_vad'):
+            # Machine-parseable: epoch plus state, so a run can be reduced to a
+            # speech duty cycle without re-deriving anything.
+            print(f'VAD {time.time():.3f} {"speech" if speaking else "silence"}'
+                  f'{self.label}', flush=True)
 
 
 def write_phone_status(active):
@@ -337,8 +485,12 @@ def faster_whisper_thread():
 
         # Audio settings
         SAMPLE_RATE = 16000
-        CHUNK_SECONDS = 3
-        CHUNK_SAMPLES = SAMPLE_RATE * CHUNK_SECONDS
+        CHUNK_SECONDS = float(CONFIG.get('offline_chunk_s', 3))
+        MAX_CHUNK_SECONDS = float(CONFIG.get('offline_max_chunk_s', 6))
+        CHUNK_BYTES = int(SAMPLE_RATE * CHUNK_SECONDS) * 2
+        MAX_CHUNK_BYTES = int(SAMPLE_RATE * MAX_CHUNK_SECONDS) * 2
+
+        detector = SpeechDetector(SAMPLE_RATE)
 
         # Get audio device
         audio_device = get_audio_device()
@@ -379,18 +531,19 @@ def faster_whisper_thread():
                 break
 
             buffer += data
+            if detector.feed(data):
+                emitter.vad_state.emit(detector.speaking)
 
-            # Process when we have enough audio
-            if len(buffer) >= CHUNK_SAMPLES * 2:  # 2 bytes per sample
-                # Convert to numpy float32
-                audio = np.frombuffer(buffer[:CHUNK_SAMPLES * 2], dtype=np.int16).astype(np.float32) / 32768.0
-                buffer = buffer[CHUNK_SAMPLES * 2:]
+            # Cut at a silence rather than on a fixed tick, so a word straddling
+            # the boundary is never split in half. Unbroken speech still has to
+            # be cut eventually or nothing would ever be transcribed.
+            if len(buffer) >= CHUNK_BYTES:
+                at_max = len(buffer) >= MAX_CHUNK_BYTES
+                if detector.enabled and detector.speaking and not at_max:
+                    continue  # mid-utterance — keep accumulating
 
-                # Check audio energy - skip if too quiet (reduces hallucinations)
-                energy = np.sqrt(np.mean(audio**2))
-                # Energy check - skip quiet chunks
-                if energy < 0.005:  # Skip very quiet chunks (lowered threshold)
-                    continue
+                audio = np.frombuffer(buffer, dtype=np.int16).astype(np.float32) / 32768.0
+                buffer = b''
 
                 # Transcribe
                 segments, info = model.transcribe(
@@ -399,11 +552,11 @@ def faster_whisper_thread():
                     beam_size=1,
                     best_of=1,
                     temperature=0,
-                    vad_filter=False,
+                    vad_filter=bool(CONFIG.get('offline_vad', True)),
                     vad_parameters={
-                        "threshold": 0.5,
-                        "min_speech_duration_ms": 250,
-                        "min_silence_duration_ms": 500
+                        "threshold": float(CONFIG.get('vad_threshold', 0.5)),
+                        "min_speech_duration_ms": int(CONFIG.get('vad_min_speech_ms', 250)),
+                        "min_silence_duration_ms": int(CONFIG.get('vad_min_silence_ms', 500))
                     },
                 )
 
@@ -659,7 +812,7 @@ def deepgram_thread():
         return
 
     print('Starting Deepgram...', flush=True)
-    emitter.status_changed.emit('deepgram')
+    emitter.status_changed.emit('connecting')
     # thread_alive already set by start_transcription
     arecord = None
 
@@ -672,6 +825,8 @@ def deepgram_thread():
         # Phone recorder is 8kHz, room mic is 16kHz
         sample_rate = 8000 if state.use_phone_audio else 16000
         print(f"Using audio device: {audio_device} @ {sample_rate}Hz", flush=True)
+
+        detector = SpeechDetector(sample_rate, label=' (deepgram)')
 
         test_data = b''
         for attempt in range(4):
@@ -759,6 +914,10 @@ def deepgram_thread():
         def on_open(ws):
             print('Deepgram connected', flush=True)
             ws_connected.set()
+            # Only now are we actually listening. Claiming it earlier showed the
+            # microphone icon during the whole handshake, so a slow link looked
+            # identical to a working one.
+            emitter.status_changed.emit('deepgram')
             emitter.mode_ready.emit('online')
 
             ws.send(test_data, opcode=2)
@@ -770,6 +929,10 @@ def deepgram_thread():
                         chunk = arecord.stdout.read(3200)
                         if chunk:
                             ws.send(chunk, opcode=2)
+                            # Observational only — nothing is withheld. This is
+                            # what the gate will eventually act on.
+                            if detector.feed(chunk):
+                                emitter.vad_state.emit(detector.speaking)
                         else:
                             if arecord.poll() is not None:
                                 print('Deepgram: arecord process died', flush=True)
@@ -1057,6 +1220,7 @@ def _chunked_api_thread(provider_name, transcribe_fn):
     try:
         audio_device = get_audio_device()
         sample_rate = 8000 if state.use_phone_audio else 16000
+        detector = SpeechDetector(sample_rate, label=f' ({provider_name.lower()})')
         chunk_seconds = 4
         chunk_bytes = sample_rate * 2 * chunk_seconds  # 16-bit mono
         print(f"Using audio device: {audio_device} @ {sample_rate}Hz", flush=True)
@@ -1084,6 +1248,7 @@ def _chunked_api_thread(provider_name, transcribe_fn):
 
 
         buffer = b''
+        speech_in_chunk = False
         while not state.is_stopped():
             state.thread_loop_time = time.time()
             data = arecord.stdout.read(3200)
@@ -1095,16 +1260,21 @@ def _chunked_api_thread(provider_name, transcribe_fn):
                 continue
 
             buffer += data
+            if detector.feed(data):
+                emitter.vad_state.emit(detector.speaking)
+                if detector.speaking:
+                    speech_in_chunk = True
 
             if len(buffer) >= chunk_bytes:
                 audio_chunk = buffer[:chunk_bytes]
                 buffer = buffer[chunk_bytes:]
 
-                # Skip silent chunks to avoid wasting API calls
-                import numpy as np
-                audio_array = np.frombuffer(audio_chunk, dtype=np.int16).astype(np.float32) / 32768.0
-                energy = np.sqrt(np.mean(audio_array**2))
-                if energy < 0.005:
+                # Skip chunks containing no speech, to avoid paying for silence.
+                # Was a fixed amplitude threshold, which meant turning the mic
+                # gain up defeated it entirely.
+                had_speech = speech_in_chunk or detector.speaking
+                speech_in_chunk = False
+                if detector.enabled and not had_speech:
                     continue
 
                 try:
@@ -1407,7 +1577,19 @@ class ClockView(QWidget):
         super().__init__()
         self.setStyleSheet('background: black;')
         layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setContentsMargins(25, 15, 25, 15)
+
+        # Status belongs here as much as on the caption view. A fault stops text
+        # arriving, no text for 90s brings up this clock, and without an
+        # indicator here the clock would hide the very warning that explains it.
+        status_row = QHBoxLayout()
+        status_row.addStretch()
+        self.status_label = QLabel('')
+        self.status_label.setStyleSheet('background: transparent;')
+        status_row.addWidget(self.status_label)
+        layout.addLayout(status_row)
+
+        layout.addStretch()
         row = QWidget()
         row_layout = QHBoxLayout(row)
         row_layout.setSpacing(30)
@@ -1415,8 +1597,25 @@ class ClockView(QWidget):
         self.mins = FlipFlap()
         row_layout.addWidget(self.hours)
         row_layout.addWidget(self.mins)
-        layout.addWidget(row)
+        layout.addWidget(row, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch()
+
         self.dimmed = False
+        self._status = ''
+        self._speaking = False
+
+    def set_status(self, status):
+        self._status = status
+        self._render_status()
+
+    def set_speaking(self, speaking):
+        self._speaking = speaking
+        self._render_status()
+
+    def _render_status(self):
+        text, style = status_display(self._status, self._speaking)
+        self.status_label.setText(text)
+        self.status_label.setStyleSheet(style)
 
     def update_time(self):
         now = datetime.now()
@@ -1509,6 +1708,8 @@ class CaptionView(QWidget):
         self.set_color(0)
         self._waiting_for_ready = False
         self._last_text_time = 0
+        self._status = ''
+        self._speaking = False
         self._prov_start = None      # doc position where uncommitted (interim) text begins
         self._last_speaker = None
         self._colour_idx = 0
@@ -1573,21 +1774,17 @@ class CaptionView(QWidget):
                 btn.setStyleSheet(f'background: {bg_col}; color: {text_col}; border-radius: 25px; font-size: 24px; font-weight: bold; border: 2px solid #444;')
 
     def set_status(self, status):
-        if status == 'switching':
-            self.status_label.setText('⏳')
-            self.status_label.setStyleSheet('font-size: 30px; background: transparent;')
-        elif status in ('vosk', 'deepgram', 'assemblyai', 'azure', 'google', 'openai', 'groq', 'interfaze', 'whisper', 'faster-whisper'):
-            self.status_label.setText('🎤')
-            self.status_label.setStyleSheet('font-size: 30px; background: transparent;')
-        elif status == 'no-key':
-            self.status_label.setText('⚠️ NO KEY')
-            self.status_label.setStyleSheet('color: #ff0000; background: #330000; padding: 8px 15px; border-radius: 10px; font-size: 18px; font-weight: bold;')
-        elif status == 'error':
-            self.status_label.setText('⚠️ ERROR')
-            self.status_label.setStyleSheet('color: #ff0000; background: #330000; padding: 8px 15px; border-radius: 10px; font-size: 18px; font-weight: bold;')
-        elif status == 'restarting':
-            self.status_label.setText('🔄')
-            self.status_label.setStyleSheet('font-size: 30px; background: transparent;')
+        self._status = status
+        self._render_status()
+
+    def set_speaking(self, speaking):
+        self._speaking = speaking
+        self._render_status()
+
+    def _render_status(self):
+        text, style = status_display(self._status, self._speaking)
+        self.status_label.setText(text)
+        self.status_label.setStyleSheet(style)
 
     def _trim_if_needed(self):
         """Trim old text to prevent unbounded memory growth.
@@ -1773,6 +1970,7 @@ class MainWindow(QMainWindow):
         emitter.new_text.connect(self.on_text)
         emitter.new_segment.connect(self.on_segment)
         emitter.speakers_reset.connect(self.caption_view.reset_speakers)
+        emitter.vad_state.connect(self.on_vad_state)
         emitter.status_changed.connect(self.on_status_changed)
         emitter.mode_changed.connect(self.on_mode_changed)
         emitter.mode_ready.connect(self.on_mode_ready)
@@ -2005,7 +2203,13 @@ class MainWindow(QMainWindow):
             state.last_phone_speech = time.time()
 
     def on_status_changed(self, status):
+        # Both views, so a fault stays visible after the clock takes over.
         self.caption_view.set_status(status)
+        self.clock_view.set_status(status)
+
+    def on_vad_state(self, speaking):
+        self.caption_view.set_speaking(speaking)
+        self.clock_view.set_speaking(speaking)
 
     def on_mode_changed(self, mode):
         self.caption_view.set_mode(mode)

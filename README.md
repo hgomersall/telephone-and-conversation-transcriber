@@ -297,6 +297,27 @@ The caption display logic — interim results, finals, speaker turn changes — 
 
 It exits non-zero on failure. Run it before deploying anything that touches that state machine; it catches ordering bugs in seconds that would take an hour to reproduce in a live room.
 
+The speech detector has its own tests, which need a real speech sample — synthetic tones prove nothing, because Silero correctly rejects them:
+
+```bash
+./vad-detector-test.py [path-to-speech-audio]
+```
+
+Without an argument it fetches a sample, and skips the speech-dependent checks rather than passing them if it can't.
+
+### Speech detection
+
+Silero VAD decides what counts as speech, replacing a fixed amplitude threshold. This matters because an amplitude threshold fails in both directions as the microphone gain changes — too high and room noise is transcribed as speech, too low and speech is discarded with no error. VAD is gain-invariant.
+
+It ships inside faster-whisper, so there is nothing to download. Set `offline_vad: false` to fall back to the old behaviour. Turn on `log_vad` to record every speech/silence transition with a timestamp:
+
+```
+VAD 1770825601.412 speech
+VAD 1770825607.980 silence
+```
+
+Those lines reduce to a speech duty cycle, which is what determines how much a cloud provider actually costs.
+
 ## Architecture
 
 ```
@@ -332,6 +353,7 @@ It exits non-zero on failure. Run it before deploying anything that touches that
 | `pyproject.toml` | Dependency declaration and optional extras |
 | `requirements.txt` | Pinned lockfile, generated from `pyproject.toml` |
 | `speaker-colour-statemachine-sim.py` | PyQt-free tests for the interim/final/speaker-change logic |
+| `vad-detector-test.py` | Tests for the Silero speech detector |
 | `config.example.json` | Template for `config.json` (all keys optional) |
 | `mute_helper.py` | Phone activity detector — monitors USB recorder |
 | `install.sh` | One-line installer for fresh Raspberry Pi |

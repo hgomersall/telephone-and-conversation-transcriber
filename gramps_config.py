@@ -53,6 +53,23 @@ DEFAULTS = {
     # Log every interim transcript, not just finals. Needed to measure
     # time-to-first-word; far too noisy to leave on in normal running.
     'log_interims': False,
+
+    # Voice activity detection. Silero ships inside faster-whisper and needs no
+    # download. It replaces a fixed amplitude threshold, so unlike the old
+    # `energy < 0.005` check it is not thrown off by changing the mic gain.
+    'offline_vad': True,          # let Silero, not amplitude, decide what is speech
+    'vad_threshold': 0.5,         # speech probability above which a frame counts
+    'vad_min_speech_ms': 250,     # ignore speech bursts shorter than this
+    'vad_min_silence_ms': 500,    # ignore gaps shorter than this
+    'vad_hangover_s': 1.0,        # keep reporting speech this long after it stops
+    'vad_indicator': True,        # show speech activity in the on-screen status
+    'log_vad': False,             # log every speech/silence transition with a timestamp
+
+    # Offline chunking. Audio is cut at a silence rather than on a fixed tick so
+    # words are never split, but unbroken speech has to be cut eventually or
+    # nothing would ever be transcribed.
+    'offline_chunk_s': 3,         # start looking for a cut point after this long
+    'offline_max_chunk_s': 6,     # cut regardless after this long
 }
 
 

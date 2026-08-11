@@ -33,3 +33,6 @@ Thumbs.db
 # Claude
 CLAUDE.md
 .claude/
+
+# Speech sample cached by vad-detector-test.py
+.vad-test-sample
