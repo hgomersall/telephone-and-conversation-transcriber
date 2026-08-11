@@ -1072,7 +1072,14 @@ def deepgram_thread():
                 last_keepalive = time.time()
                 started = time.time()
                 last_report = started
-                last_speech = 0.0
+                # Start open, so the stream begins exactly as an ungated one
+                # does and closes only once the hangover expires with nothing
+                # said. Starting closed meant Deepgram received nothing but
+                # KeepAlive until the first word — possibly minutes — and then
+                # a pre-roll burst arriving faster than real time. It also left
+                # the very first utterance of a session resting entirely on the
+                # pre-roll, which is the one place there is no margin.
+                last_speech = time.time()
 
                 if gating:
                     print(f'Gate on: {gate.preroll_s:.2f}s pre-roll, '
