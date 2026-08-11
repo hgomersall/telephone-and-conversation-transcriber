@@ -309,7 +309,21 @@ Without an argument it fetches a sample, and skips the speech-dependent checks r
 
 **Recognised speech is never written to the log.** This device hears every conversation and every phone call in the house, so a log of what it heard would be a verbatim, permanent, unencrypted record on a removable SD card — covering medical, financial and family matters, and callers who were never asked.
 
-`log_transcripts` turns it on for debugging. Turn it off again afterwards, and delete what it wrote.
+To see what it's hearing while debugging, use the flag rather than config:
+
+```bash
+uv run --extra gui caption_app.py --log            # finals
+uv run --extra gui caption_app.py --log-interims   # plus every partial
+```
+
+A flag lasts exactly as long as the process you typed it into. A config setting is easy to enable while debugging and then forget, after which every conversation in the house accumulates in the journal indefinitely — so the flag is the intended route, and the systemd unit does not pass it. `log_transcripts` in config still works if you genuinely want it persistent.
+
+Either way it announces itself at startup, every time:
+
+```
+*** SPEECH IS BEING LOGGED (--log flag) ***
+*** Everything said in this room will appear below. ***
+```
 
 Operational logging — start-up, errors, device names, restarts — carries no speech and stays on, because a device that fails silently is worse than one that fails loudly.
 

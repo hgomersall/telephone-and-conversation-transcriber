@@ -12,6 +12,26 @@ import collections
 import numpy as np
 from datetime import datetime
 
+USAGE = """Gramps Captions — live transcription for landline and in-room speech
+
+  caption_app.py [--log] [--log-interims]
+
+  --log            print recognised speech to this terminal
+  --log-interims   as --log, plus every partial result (very noisy)
+
+Speech is not logged by default. These are command-line flags rather than
+config keys on purpose: a flag lasts exactly as long as the process you typed
+it into, whereas a config setting is easy to enable while debugging and then
+forget, after which every conversation in the house accumulates in the journal
+indefinitely. The systemd unit does not pass them.
+"""
+
+# Answered before the GUI toolkit is imported, so --help works on a machine
+# with no display libraries.
+if '-h' in sys.argv[1:] or '--help' in sys.argv[1:]:
+    print(USAGE)
+    sys.exit(0)
+
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTextEdit, QLabel,
     QVBoxLayout, QHBoxLayout, QWidget, QScroller, QStackedWidget)
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
@@ -37,15 +57,19 @@ SPEAKER_PALETTE_LIGHT = ['#1a1a1a', '#8a4b00', '#00457a']
 SPEAKER_MARKER = '▸ '
 MODE_FILE = '/tmp/gramps_mode'
 
-# Interim results are logged only when this is on — one line per partial is far
-# too noisy for normal running, but it is what the latency diagnostic needs.
-LOG_INTERIMS = bool(CONFIG.get('log_interims'))
+_ARGV = sys.argv[1:]
 
-# Recognised speech is NOT logged unless this is explicitly turned on. The log
-# would otherwise be a verbatim, permanent, unencrypted record of every
-# conversation and phone call in the house, sitting on the SD card of a device
-# in someone's home — including callers who never agreed to any of it.
-LOG_TRANSCRIPTS = bool(CONFIG.get('log_transcripts'))
+# Recognised speech is NOT logged unless explicitly asked for. It would
+# otherwise be a verbatim record of every conversation and phone call in the
+# house — including callers who never agreed to any of it.
+LOG_TRANSCRIPTS = bool(CONFIG.get('log_transcripts')) or '--log' in _ARGV or '--log-interims' in _ARGV
+LOG_TRANSCRIPTS_VIA = ('--log flag' if ('--log' in _ARGV or '--log-interims' in _ARGV)
+                       else 'log_transcripts in config')
+
+# Interim results are extremely noisy — one line per partial — but they are
+# what the latency diagnostic needs. Content either way, so they follow the
+# same rule.
+LOG_INTERIMS = bool(CONFIG.get('log_interims')) or '--log-interims' in _ARGV
 
 
 def log_transcript(text, prefix='>>>'):
@@ -2374,12 +2398,22 @@ def main():
     print('Starting Gramps Captions (BULLETPROOF VERSION)', flush=True)
     print('='*50, flush=True)
 
+    if LOG_TRANSCRIPTS:
+        # Say so, every time. Speech logging that runs unannounced is how a
+        # device ends up holding months of private conversation that nobody
+        # remembers switching on.
+        print(f'*** SPEECH IS BEING LOGGED ({LOG_TRANSCRIPTS_VIA}) ***', flush=True)
+        print('*** Everything said in this room will appear below. ***', flush=True)
+
     clear_stale_state()
     cleanup_audio_processes()
     ensure_mic_volume()
 
     # Create QApplication FIRST — Qt signals require this
-    app = QApplication(sys.argv)
+    # Our flags are not Qt's; hand it only what it understands.
+    app = QApplication([sys.argv[0]] + [
+        a for a in sys.argv[1:] if a not in ('--log', '--log-interims')
+    ])
 
     try:
         import systemd.daemon
