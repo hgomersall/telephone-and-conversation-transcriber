@@ -73,11 +73,16 @@ def to_pcm(a):
 
 
 def transitions(detector_cls, pcm, sr=SR):
+    """Feed audio in 100 ms reads. Returns (detector, [(audio_t, active, speaking)]).
+
+    feed() reports changes in `active` — the raw state driving the indicator —
+    so `speaking` is sampled at those moments rather than at its own.
+    """
     d = detector_cls(sr)
     out = []
     for i in range(0, len(pcm), 3200):
         if d.feed(pcm[i:i + 3200]):
-            out.append((round(d._t, 2), d.speaking))
+            out.append((round(d._t, 2), d.active, d.speaking))
     return d, out
 
 
@@ -121,20 +126,31 @@ def main():
     speech = load_speech(sys.argv[1] if len(sys.argv) > 1 else None)
     if speech is None:
         for n in ['real speech detected', 'speech bracketed by silence',
-                  'gain invariance']:
+                  'indicator leads the debounced state', 'gain invariance']:
             skip(n, 'no speech sample available')
     else:
-        _, tr = transitions(SpeechDetector, to_pcm(speech))
-        check('real speech detected', any(s for _, s in tr), str(tr))
+        d, tr = transitions(SpeechDetector, to_pcm(speech))
+        check('real speech detected', any(a for _, a, _ in tr), str(tr))
 
         seq = np.concatenate([quiet, speech, quiet])
-        _, tr = transitions(SpeechDetector, to_pcm(seq))
-        check('speech bracketed by silence', len(tr) >= 2 and tr[0][1] and not tr[-1][1],
-              str(tr))
+        d, tr = transitions(SpeechDetector, to_pcm(seq))
+        check('speech bracketed by silence',
+              any(s for _, _, s in tr) and not d.speaking,
+              f'speaking seen={any(s for _, _, s in tr)} at_end={d.speaking} {tr}')
+
+        # The indicator must respond to the voice, not to the hangover. The
+        # first raw detection necessarily precedes the debounced one, which
+        # still has min_speech_duration to satisfy.
+        first_active = next((t for t, a, _ in tr if a), None)
+        first_speaking = next((t for t, _, s in tr if s), None)
+        check('indicator leads the debounced state',
+              first_active is not None and
+              (first_speaking is None or first_active <= first_speaking),
+              f'active at {first_active}s, speaking at {first_speaking}s')
 
         # The one the old threshold could not do: same signal, 8x quieter.
         _, tr = transitions(SpeechDetector, to_pcm(speech * 0.125))
-        check('gain invariance (speech at 1/8 level)', any(s for _, s in tr), str(tr))
+        check('gain invariance (speech at 1/8 level)', any(a for _, a, _ in tr), str(tr))
 
     print()
     if FAILURES:

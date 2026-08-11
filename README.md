@@ -309,6 +309,8 @@ Without an argument it fetches a sample, and skips the speech-dependent checks r
 
 Silero VAD decides what counts as speech, replacing a fixed amplitude threshold. This matters because an amplitude threshold fails in both directions as the microphone gain changes — too high and room noise is transcribed as speech, too low and speech is discarded with no error. VAD is gain-invariant.
 
+There are two states. The **indicator** follows the raw detection, so the microphone icon responds as you speak — its job is to answer "is this thing hearing me?" immediately. Decisions about the audio itself use a **debounced** state with a minimum duration and a hangover, so a pause between two words is not mistaken for the end of a sentence.
+
 It ships inside faster-whisper, so there is nothing to download. Set `offline_vad: false` to fall back to the old behaviour. Turn on `log_vad` to record every speech/silence transition with a timestamp:
 
 ```

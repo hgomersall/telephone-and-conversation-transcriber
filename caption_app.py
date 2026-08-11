@@ -286,8 +286,17 @@ class SpeechDetector:
     """Silero VAD over a raw PCM stream — reports whether speech is present.
 
     Observational only: it never withholds audio. Feed it the same bytes that
-    go to the recogniser and read `speaking`, or connect to the vad_state
-    signal for transitions.
+    go to the recogniser.
+
+    Two states, deliberately:
+
+      active   — the raw per-window verdict, for the on-screen indicator. It
+                 should track the voice as closely as it can, because its job
+                 is to answer "is this thing hearing me?" the moment you speak.
+      speaking — the same verdict with a minimum duration and a hangover
+                 applied, for decisions about the audio itself. Cutting a chunk
+                 or closing a gate on the raw state would land in the pause
+                 between two words.
 
     Unlike the fixed `energy < 0.005` threshold it replaces, this is not a
     function of amplitude, so changing the mic gain cannot break it.
@@ -303,7 +312,8 @@ class SpeechDetector:
         self.sample_rate = sample_rate
         self.label = label
         self.enabled = False
-        self.speaking = False
+        self.active = False     # raw — drives the indicator
+        self.speaking = False   # debounced — drives decisions about audio
         self._model = None
         self._buf = np.empty(0, dtype=np.float32)
         # Durations are measured in AUDIO time, not wall-clock. The offline loop
@@ -334,7 +344,11 @@ class SpeechDetector:
             print(f'VAD unavailable{self.label}: {e}', flush=True)
 
     def feed(self, pcm_bytes):
-        """Push raw S16_LE mono audio. Returns True if the state changed."""
+        """Push raw S16_LE mono audio. Returns True if `active` changed.
+
+        The return value drives the indicator, so it reports the raw state.
+        Read `speaking` for the debounced one.
+        """
         if not self.enabled:
             return False
         try:
@@ -346,7 +360,9 @@ class SpeechDetector:
                 probs = self._model(self._buf[:window], num_samples=self._frame)
                 self._buf = self._buf[window:]
                 self._t += window / float(self.sample_rate)
-                if self._update(float(np.max(probs))):
+                was_active = self.active
+                self._update(float(np.max(probs)))
+                if self.active != was_active:
                     changed = True
             return changed
         except Exception as e:
@@ -357,33 +373,34 @@ class SpeechDetector:
             return False
 
     def _update(self, prob):
-        """Apply threshold, minimum durations and hangover. Returns True on change.
+        """Update both states from one window's verdict.
 
         `now` is audio time — seconds of audio fed in, not seconds elapsed.
         """
         now = self._t
         loud = prob >= self._threshold
 
+        # Raw state: no smoothing beyond the window itself, which already takes
+        # the maximum across its frames. The indicator follows the voice.
+        self.active = loud
+
         if loud:
             self._last_speech = now
             if not self.speaking:
                 if self._speech_since == 0.0:
                     self._speech_since = now
-                # Require sustained speech so one noisy frame cannot latch it on.
-                # The window this is measured over is BATCH_FRAMES long, so a
-                # min_speech shorter than that resolves on the first batch.
+                # Require sustained speech so one noisy window cannot latch it
+                # on. Measured over BATCH_FRAMES, so a min_speech shorter than
+                # that window resolves on the first one.
                 if now - self._speech_since >= self._min_speech:
                     self.speaking = True
                     self._log(True)
-                    return True
-            return False
+            return
 
         self._speech_since = 0.0
         if self.speaking and now - self._last_speech >= max(self._min_silence, self._hangover):
             self.speaking = False
             self._log(False)
-            return True
-        return False
 
     def _log(self, speaking):
         if CONFIG.get('log_vad'):
@@ -532,7 +549,7 @@ def faster_whisper_thread():
 
             buffer += data
             if detector.feed(data):
-                emitter.vad_state.emit(detector.speaking)
+                emitter.vad_state.emit(detector.active)
 
             # Cut at a silence rather than on a fixed tick, so a word straddling
             # the boundary is never split in half. Unbroken speech still has to
@@ -932,7 +949,7 @@ def deepgram_thread():
                             # Observational only — nothing is withheld. This is
                             # what the gate will eventually act on.
                             if detector.feed(chunk):
-                                emitter.vad_state.emit(detector.speaking)
+                                emitter.vad_state.emit(detector.active)
                         else:
                             if arecord.poll() is not None:
                                 print('Deepgram: arecord process died', flush=True)
@@ -1261,9 +1278,12 @@ def _chunked_api_thread(provider_name, transcribe_fn):
 
             buffer += data
             if detector.feed(data):
-                emitter.vad_state.emit(detector.speaking)
-                if detector.speaking:
-                    speech_in_chunk = True
+                emitter.vad_state.emit(detector.active)
+            if detector.active:
+                # Over-inclusive on purpose: sending a chunk that turns out to
+                # be quiet costs a fraction of a penny, dropping one that had a
+                # short word in it costs the word.
+                speech_in_chunk = True
 
             if len(buffer) >= chunk_bytes:
                 audio_chunk = buffer[:chunk_bytes]
@@ -1272,7 +1292,7 @@ def _chunked_api_thread(provider_name, transcribe_fn):
                 # Skip chunks containing no speech, to avoid paying for silence.
                 # Was a fixed amplitude threshold, which meant turning the mic
                 # gain up defeated it entirely.
-                had_speech = speech_in_chunk or detector.speaking
+                had_speech = speech_in_chunk or detector.active
                 speech_in_chunk = False
                 if detector.enabled and not had_speech:
                     continue
