@@ -65,6 +65,14 @@ DEFAULTS = {
     'vad_indicator': True,        # show speech activity in the on-screen status
     'log_vad': False,             # log every speech/silence transition with a timestamp
 
+    # Gating the Deepgram stream. Deepgram bills on audio sent rather than on
+    # connection time, and KeepAlive is not charged, so the socket stays open
+    # for the life of the thread and only the audio is withheld. Set vad_gate
+    # false to stream continuously as before.
+    'vad_gate': True,
+    'preroll_s': 0.5,             # audio held back and flushed when speech starts
+    'keepalive_s': 4.0,           # KeepAlive interval; Deepgram drops at 10s of nothing
+
     # Offline chunking. Audio is cut at a silence rather than on a fixed tick so
     # words are never split, but unbroken speech has to be cut eventually or
     # nothing would ever be transcribed.

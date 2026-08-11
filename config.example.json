@@ -29,6 +29,10 @@
     "vad_indicator": true,
     "log_vad": false,
 
+    "vad_gate": true,
+    "preroll_s": 0.5,
+    "keepalive_s": 4.0,
+
     "offline_chunk_s": 3,
     "offline_max_chunk_s": 6
 }

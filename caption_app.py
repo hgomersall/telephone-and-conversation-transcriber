@@ -8,6 +8,7 @@ import re
 import time
 import queue
 import json
+import collections
 import numpy as np
 from datetime import datetime
 
@@ -413,6 +414,55 @@ class SpeechDetector:
             # speech duty cycle without re-deriving anything.
             print(f'VAD {time.time():.3f} {"speech" if speaking else "silence"}'
                   f'{self.label}', flush=True)
+
+
+class AudioGate:
+    """Holds audio back while nobody is speaking.
+
+    Deepgram bills on audio sent rather than on connection time, so withholding
+    silence is the whole saving. The risk is clipping the start of an utterance:
+    a detector only knows speech began after hearing some of it, and the onset
+    of a word is its quietest part. So recent audio is kept in a ring buffer and
+    flushed the instant the gate opens, which recovers the leading word.
+
+    The buffer is sized in time rather than chunks — a 3200-byte read is 100 ms
+    at 16 kHz but 200 ms at 8 kHz, so a fixed count would silently give the
+    phone tap twice the pre-roll.
+    """
+
+    def __init__(self, sample_rate, preroll_s, bytes_per_chunk=3200):
+        self.bytes_per_sec = sample_rate * 2
+        # Round UP to a whole chunk. A read is 200ms at 8kHz, so the requested
+        # duration usually is not representable, and erring short is the
+        # direction that clips words.
+        need = int(preroll_s * self.bytes_per_sec)
+        self.chunks = max(1, (need + bytes_per_chunk - 1) // bytes_per_chunk)
+        self._buf = collections.deque(maxlen=self.chunks)
+        self.bytes_per_chunk = bytes_per_chunk
+        self.open = False
+        self.sent_bytes = 0
+
+    @property
+    def preroll_s(self):
+        return self.chunks * self.bytes_per_chunk / float(self.bytes_per_sec)
+
+    def feed(self, chunk, want_open):
+        """Return the chunks to transmit for this read — possibly none."""
+        if want_open:
+            out = []
+            if not self.open:
+                out.extend(self._buf)
+                self._buf.clear()
+                self.open = True
+            out.append(chunk)
+            self.sent_bytes += sum(len(c) for c in out)
+            return out
+        self.open = False
+        self._buf.append(chunk)
+        return []
+
+    def billed_seconds(self):
+        return self.sent_bytes / float(self.bytes_per_sec)
 
 
 def write_phone_status(active):
@@ -945,24 +995,70 @@ def deepgram_thread():
             ws.send(test_data, opcode=2)
 
             def send_audio():
+                # Deepgram bills on audio sent, not on connection time, and
+                # KeepAlive is not charged — so the socket is held open for the
+                # life of the thread and only the audio is gated. Closing and
+                # reopening would cost a reconnect on every utterance.
+                gating = bool(CONFIG.get('vad_gate', True)) and detector.enabled
+                gate = AudioGate(sample_rate, float(CONFIG.get('preroll_s', 0.5)))
+                keepalive_every = float(CONFIG.get('keepalive_s', 4.0))
+                keepalive_msg = json.dumps({'type': 'KeepAlive'})
+
+                last_keepalive = time.time()
+                started = time.time()
+                last_report = started
+
+                if gating:
+                    print(f'Gate on: {gate.preroll_s:.2f}s pre-roll', flush=True)
+                else:
+                    print('Gate off: streaming continuously', flush=True)
+
                 while not state.is_stopped() and not ws_error.is_set():
                     state.thread_loop_time = time.time()
                     try:
-                        chunk = arecord.stdout.read(3200)
-                        if chunk:
-                            ws.send(chunk, opcode=2)
-                            # Observational only — nothing is withheld. This is
-                            # what the gate will eventually act on.
-                            if detector.feed(chunk):
-                                emitter.vad_state.emit(detector.active)
-                        else:
+                        chunk = arecord.stdout.read(gate.bytes_per_chunk)
+                        if not chunk:
                             if arecord.poll() is not None:
                                 print('Deepgram: arecord process died', flush=True)
                                 break
                             print('send_audio: arecord returned empty data, stopping', flush=True); break
+
+                        if detector.feed(chunk):
+                            emitter.vad_state.emit(detector.active)
+
+                        # Open on the raw state so the gate reacts as fast as the
+                        # indicator; close on the debounced one so a pause between
+                        # two words cannot shut it mid-sentence. With gating off
+                        # the gate is simply always open.
+                        want_open = (not gating) or detector.active or detector.speaking
+
+                        for outgoing in gate.feed(chunk, want_open):
+                            ws.send(outgoing, opcode=2)
+
+                        now = time.time()
+                        if not gate.open:
+                            if now - last_keepalive >= keepalive_every:
+                                # Text frame. Sent as binary it would be treated
+                                # as audio and would not prevent the 10s
+                                # NET-0001 timeout.
+                                ws.send(keepalive_msg)
+                                last_keepalive = now
+
+                        if CONFIG.get('log_vad') and now - last_report >= 300:
+                            elapsed = now - started
+                            billed = gate.billed_seconds()
+                            print(f'GATE billed {billed:.0f}s of {elapsed:.0f}s '
+                                  f'({100.0 * billed / elapsed:.1f}%)', flush=True)
+                            last_report = now
                     except Exception as e:
                         print(f"Send error: {e}", flush=True)
                         break
+
+                if gating and gate.sent_bytes:
+                    elapsed = max(1e-6, time.time() - started)
+                    billed = gate.billed_seconds()
+                    print(f'Gate closed: billed {billed:.0f}s of {elapsed:.0f}s '
+                          f'({100.0 * billed / elapsed:.1f}%)', flush=True)
                 try:
                     ws.close()
                 except:

@@ -320,6 +320,20 @@ VAD 1770825607.980 silence
 
 Those lines reduce to a speech duty cycle, which is what determines how much a cloud provider actually costs.
 
+### Cost gating
+
+Deepgram bills on audio *sent*, not on connection time, and `KeepAlive` messages are not charged — so the websocket is held open for the life of the session and only the audio is withheld. Closing and reopening would cost a reconnect at the start of every utterance.
+
+While nobody is speaking, audio is held in a ring buffer and a `KeepAlive` goes out every few seconds. When speech starts, that buffer is flushed first and then audio streams live. The buffer is what stops the first word being clipped: a detector only knows speech began after hearing some of it, and the onset of a word is its quietest part.
+
+Set `vad_gate: false` to stream continuously as before. `preroll_s` (default 0.5) trades billed audio against safety margin at the start of an utterance — measured against real speech, 0.5 s transmits from about 470 ms before the first sound, for roughly 2% more billed audio than 0.1 s.
+
+With `log_vad` on, the saving is reported directly rather than inferred from a bill:
+
+```
+GATE billed 41s of 300s (13.7%)
+```
+
 ## Architecture
 
 ```

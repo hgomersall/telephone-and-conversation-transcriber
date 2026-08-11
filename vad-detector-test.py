@@ -152,6 +152,67 @@ def main():
         _, tr = transitions(SpeechDetector, to_pcm(speech * 0.125))
         check('gain invariance (speech at 1/8 level)', any(a for _, a, _ in tr), str(tr))
 
+    print('\ngate cases')
+    AudioGate = caption_app.AudioGate
+
+    # Sized in time, not chunks — the phone tap reads the same 3200 bytes but
+    # they are twice as long, so a fixed chunk count would double its pre-roll.
+    # A read is 100 ms at 16 kHz and 200 ms at 8 kHz, so the requested duration
+    # is not always representable. It must never come out SHORT, and the two
+    # rates must reach it with different chunk counts.
+    g16 = AudioGate(16000, 0.5)
+    g8 = AudioGate(8000, 0.5)
+    check('pre-roll is a duration, not a chunk count',
+          g16.chunks != g8.chunks
+          and g16.preroll_s >= 0.5 and g8.preroll_s >= 0.5
+          and g16.preroll_s < 0.5 + 0.2 and g8.preroll_s < 0.5 + 0.2,
+          f'16k: {g16.chunks} chunks/{g16.preroll_s:.2f}s, 8k: {g8.chunks} chunks/{g8.preroll_s:.2f}s')
+
+    g = AudioGate(16000, 0.5)
+    silence_chunk = b'\x00' * 3200
+    for _ in range(20):
+        check_out = g.feed(silence_chunk, False)
+    check('nothing transmitted while closed', g.sent_bytes == 0, f'{g.sent_bytes} bytes')
+
+    out = g.feed(b'\x01' * 3200, True)
+    check('pre-roll flushed on open', len(out) == g.chunks + 1,
+          f'{len(out)} chunks out, expected {g.chunks} held + 1 current')
+
+    out2 = g.feed(b'\x02' * 3200, True)
+    check('steady state passes one chunk per read', len(out2) == 1, str(len(out2)))
+
+    if speech is not None:
+        # The one that matters: is the start of the utterance actually there?
+        lead = 5.0
+        w = 160
+        floor = float(np.sqrt(np.mean(speech[:w * 5] ** 2)))
+        onset = next((i / SR for i in range(0, len(speech) - w, w)
+                      if np.sqrt(np.mean(speech[i:i + w] ** 2)) > max(10 * floor, 0.01)), 0.0)
+        true_onset = lead + onset
+        pcm = to_pcm(np.concatenate([quiet[:int(lead * SR)], speech, quiet]))
+
+        d = SpeechDetector(SR)
+        g = AudioGate(SR, 0.5)
+        t, open_at = 0.0, None
+        for i in range(0, len(pcm), 3200):
+            c = pcm[i:i + 3200]
+            d.feed(c)
+            was = g.open
+            g.feed(c, d.active or d.speaking)
+            if g.open and not was and open_at is None:
+                open_at = t
+            t += len(c) / 2.0 / SR
+
+        tx_start = (open_at or 0.0) - g.preroll_s
+        check('utterance onset survives the gate', tx_start <= true_onset,
+              f'transmitted from {tx_start:.2f}s, speech starts {true_onset:.2f}s')
+        check('gate actually withholds something',
+              g.billed_seconds() < t * 0.9,
+              f'billed {g.billed_seconds():.1f}s of {t:.1f}s')
+    else:
+        skip('utterance onset survives the gate', 'no speech sample available')
+        skip('gate actually withholds something', 'no speech sample available')
+
     print()
     if FAILURES:
         print(f'{len(FAILURES)} FAILED: ' + ', '.join(FAILURES))
