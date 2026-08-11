@@ -76,11 +76,25 @@ DEFAULTS = {
     # emitted per transition, so a silent room produces none.
     'log_vad': True,
 
+    # Colour and mark caption text when the speaker changes (Deepgram, room mic).
+    # Mutually exclusive with vad_gate — see below.
+    'speaker_colours': True,
+
     # Gating the Deepgram stream. Deepgram bills on audio sent rather than on
     # connection time, and KeepAlive is not charged, so the socket stays open
     # for the life of the thread and only the audio is withheld. Set vad_gate
     # false to stream continuously as before.
+    #
     'vad_gate': True,
+
+    # How long the gate stays open after speech stops. Much longer than the
+    # detector's hangover on purpose: across a gap in the audio Deepgram
+    # restarts its speaker numbering, so a gate that shuts between turns makes
+    # every utterance come back as speaker 0 and speaker colours stop working.
+    # Several seconds bridges conversational pauses and keeps a whole
+    # conversation as one unbroken stream. It costs very little, because nearly
+    # all the saving is silent hours rather than the gaps between turns.
+    'gate_hangover_s': 4.0,
     'preroll_s': 0.5,             # audio held back and flushed when speech starts
     'keepalive_s': 4.0,           # KeepAlive interval; Deepgram drops at 10s of nothing
 

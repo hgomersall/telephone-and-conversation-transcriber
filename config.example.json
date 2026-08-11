@@ -30,7 +30,9 @@
     "vad_indicator": true,
     "log_vad": true,
 
+    "speaker_colours": true,
     "vad_gate": true,
+    "gate_hangover_s": 4.0,
     "preroll_s": 0.5,
     "keepalive_s": 4.0,
 

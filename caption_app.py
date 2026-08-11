@@ -71,6 +71,11 @@ LOG_TRANSCRIPTS_VIA = ('--log flag' if ('--log' in _ARGV or '--log-interims' in 
 # same rule.
 LOG_INTERIMS = bool(CONFIG.get('log_interims')) or '--log-interims' in _ARGV
 
+# Colour and mark caption text on speaker change. Off means no explicit
+# character format is applied, which is what lets the colour-scheme buttons
+# control the text colour again.
+SPEAKER_COLOURS = bool(CONFIG.get('speaker_colours', True))
+
 
 def log_transcript(text, prefix='>>>'):
     """Print recognised speech, if and only if that has been asked for."""
@@ -968,7 +973,26 @@ def deepgram_thread():
         ]
         # Diarization is billed separately and is pointless on the phone tap,
         # which already has exactly one remote talker.
-        if not state.use_phone_audio:
+        diarize = bool(CONFIG.get('speaker_colours', True)) and not state.use_phone_audio
+
+        # Across a gap in the audio Deepgram restarts its speaker numbering, so
+        # a gate that closes between turns makes every utterance come back as
+        # speaker 0 and no change is ever seen. The answer is to hold the gate
+        # open across conversational pauses — gate_hangover_s, several seconds
+        # rather than the fraction the detector needs — so a whole conversation
+        # is one unbroken stream.
+        #
+        # This costs very little. Nearly all the saving is silent hours, not the
+        # gaps between turns, so billing the pauses inside a conversation barely
+        # moves the monthly total.
+        gating_wanted = bool(CONFIG.get('vad_gate', True))
+        gate_hangover = float(CONFIG.get('gate_hangover_s', 4.0))
+        if diarize and gating_wanted and gate_hangover < 3.0:
+            print(f'Warning: gate_hangover_s={gate_hangover}s is short enough that '
+                  'the gate will close between turns, which resets Deepgram\'s '
+                  'speaker numbering and disables speaker colours.', flush=True)
+
+        if diarize:
             params.append('diarize_model=latest')
         url = 'wss://api.deepgram.com/v1/listen?' + '&'.join(params)
 
@@ -1035,7 +1059,7 @@ def deepgram_thread():
                 # KeepAlive is not charged — so the socket is held open for the
                 # life of the thread and only the audio is gated. Closing and
                 # reopening would cost a reconnect on every utterance.
-                gating = bool(CONFIG.get('vad_gate', True)) and detector.enabled
+                gating = gating_wanted and detector.enabled
                 gate = AudioGate(sample_rate, float(CONFIG.get('preroll_s', 0.5)))
                 keepalive_every = float(CONFIG.get('keepalive_s', 4.0))
                 keepalive_msg = json.dumps({'type': 'KeepAlive'})
@@ -1043,9 +1067,11 @@ def deepgram_thread():
                 last_keepalive = time.time()
                 started = time.time()
                 last_report = started
+                last_speech = 0.0
 
                 if gating:
-                    print(f'Gate on: {gate.preroll_s:.2f}s pre-roll', flush=True)
+                    print(f'Gate on: {gate.preroll_s:.2f}s pre-roll, '
+                          f'{gate_hangover:.1f}s hangover', flush=True)
                 else:
                     print('Gate off: streaming continuously', flush=True)
 
@@ -1062,16 +1088,20 @@ def deepgram_thread():
                         if detector.feed(chunk):
                             emitter.vad_state.emit(detector.active)
 
-                        # Open on the raw state so the gate reacts as fast as the
-                        # indicator; close on the debounced one so a pause between
-                        # two words cannot shut it mid-sentence. With gating off
-                        # the gate is simply always open.
-                        want_open = (not gating) or detector.active or detector.speaking
+                        now = time.time()
+                        if detector.active:
+                            last_speech = now
+
+                        # Opens on the raw state, so it reacts as fast as the
+                        # indicator. Stays open for gate_hangover_s afterwards —
+                        # its own, much longer than the detector's, so the
+                        # stream survives the pauses between turns and Deepgram
+                        # does not restart its speaker numbering mid-conversation.
+                        want_open = (not gating) or detector.active \
+                            or (now - last_speech) < gate_hangover
 
                         for outgoing in gate.feed(chunk, want_open):
                             ws.send(outgoing, opcode=2)
-
-                        now = time.time()
                         if not gate.open:
                             if now - last_keepalive >= keepalive_every:
                                 # Text frame. Sent as binary it would be treated
@@ -2035,10 +2065,16 @@ class CaptionView(QWidget):
                 sep = ' '
             c.insertText(sep)
 
-        fmt = QTextCharFormat()
-        fmt.setForeground(QColor(palette[colour_idx]))
-        marker = SPEAKER_MARKER if (turn_change or at_start) else ''
-        c.insertText(marker + text, fmt)
+        if SPEAKER_COLOURS:
+            fmt = QTextCharFormat()
+            fmt.setForeground(QColor(palette[colour_idx]))
+            marker = SPEAKER_MARKER if (turn_change or at_start) else ''
+            c.insertText(marker + text, fmt)
+        else:
+            # No explicit character format. An explicit one overrides the
+            # widget stylesheet, which is why the colour-scheme buttons stopped
+            # changing the text colour once speaker colouring arrived.
+            c.insertText(text)
 
         if is_final:
             self._prov_start = None
