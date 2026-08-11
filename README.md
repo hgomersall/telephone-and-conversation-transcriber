@@ -305,6 +305,18 @@ The speech detector has its own tests, which need a real speech sample — synth
 
 Without an argument it fetches a sample, and skips the speech-dependent checks rather than passing them if it can't.
 
+### Privacy
+
+**Recognised speech is never written to the log.** This device hears every conversation and every phone call in the house, so a log of what it heard would be a verbatim, permanent, unencrypted record on a removable SD card — covering medical, financial and family matters, and callers who were never asked.
+
+`log_transcripts` turns it on for debugging. Turn it off again afterwards, and delete what it wrote.
+
+Operational logging — start-up, errors, device names, restarts — carries no speech and stays on, because a device that fails silently is worse than one that fails loudly.
+
+Output goes to the systemd journal rather than a file. `journalctl --user -u caption` reads it, and journald caps and rotates it. An earlier version appended to `~/caption.log`, which nothing rotated and nothing read; it grew until the card filled, taking the captions, the setup wizard and the watchdogs down together.
+
+Nothing is sent off the device except audio to whichever speech service you configured. The health monitor's alerts contain fixed status strings, never transcript text.
+
 ### Speech detection
 
 Silero VAD decides what counts as speech, replacing a fixed amplitude threshold. This matters because an amplitude threshold fails in both directions as the microphone gain changes — too high and room noise is transcribed as speech, too low and speech is discarded with no error. VAD is gain-invariant.

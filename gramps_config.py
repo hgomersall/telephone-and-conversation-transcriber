@@ -50,8 +50,15 @@ DEFAULTS = {
     # Used by the network watchdog
     'gateway_ip': None,
 
+    # Write recognised speech to the log. OFF, and it should stay off outside
+    # of debugging: the log is a verbatim, permanent, unencrypted record of
+    # every conversation and phone call in the house, on the SD card of a
+    # device sitting in someone's home. Callers have not agreed to it either.
+    'log_transcripts': False,
+
     # Log every interim transcript, not just finals. Needed to measure
-    # time-to-first-word; far too noisy to leave on in normal running.
+    # time-to-first-word. Also transcript content, so it needs log_transcripts
+    # as well as this.
     'log_interims': False,
 
     # Voice activity detection. Silero ships inside faster-whisper and needs no

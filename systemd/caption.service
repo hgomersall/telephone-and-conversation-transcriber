@@ -12,8 +12,12 @@ Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=PYTHONUNBUFFERED=1
 ExecStartPre=/bin/sleep 3
 ExecStart=%h/gramps-env/bin/python %h/gramps-transcriber/caption_app.py
-StandardOutput=append:%h/caption.log
-StandardError=append:%h/caption.log
+# The journal, not a file. `append:` grows without bound — nothing rotated it,
+# nothing read it, and it accumulated on the SD card until the card filled.
+# journald is size-capped and rotated already, and `journalctl --user -u caption`
+# is what the troubleshooting docs tell people to use anyway.
+StandardOutput=journal
+StandardError=journal
 Restart=always
 RestartSec=5
 WatchdogSec=120

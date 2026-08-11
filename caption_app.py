@@ -41,6 +41,18 @@ MODE_FILE = '/tmp/gramps_mode'
 # too noisy for normal running, but it is what the latency diagnostic needs.
 LOG_INTERIMS = bool(CONFIG.get('log_interims'))
 
+# Recognised speech is NOT logged unless this is explicitly turned on. The log
+# would otherwise be a verbatim, permanent, unencrypted record of every
+# conversation and phone call in the house, sitting on the SD card of a device
+# in someone's home — including callers who never agreed to any of it.
+LOG_TRANSCRIPTS = bool(CONFIG.get('log_transcripts'))
+
+
+def log_transcript(text, prefix='>>>'):
+    """Print recognised speech, if and only if that has been asked for."""
+    if LOG_TRANSCRIPTS:
+        print(f'{prefix} {text}', flush=True)
+
 # Try to load secrets — check credentials.py first, then config.json
 try:
     from credentials import DEEPGRAM_KEY
@@ -638,7 +650,7 @@ def faster_whisper_thread():
                 for segment in segments_list:
                     text = segment.text.strip()
                     if text:
-                        print(f'>>> {text}', flush=True)
+                        log_transcript(text)
                         state.mark_success()
                         emitter.new_text.emit(text)
 
@@ -740,7 +752,7 @@ def vosk_thread():
                     result = json.loads(rec.Result())
                     text = result.get('text', '').strip()
                     if text:
-                        print(f'>>> {text}', flush=True)
+                        log_transcript(text)
                         state.mark_success()
                         emitter.new_text.emit(text)
             except Exception as e:
@@ -840,7 +852,7 @@ def whisper_thread():
             if 'BLANK_AUDIO' in line or 'INAUDIBLE' in line:
                 continue
 
-            print(f'>>> {line}', flush=True)
+            log_transcript(line)
             state.mark_success()
             emitter.new_text.emit(line)
 
@@ -967,9 +979,9 @@ def deepgram_thread():
                     speaker = max(set(labels), key=labels.count)
                 if t.strip():
                     if is_final:
-                        print(f'>>> [spk {speaker}] {t.strip()}', flush=True)
+                        log_transcript(t.strip(), f'>>> [spk {speaker}]')
                     elif LOG_INTERIMS:
-                        print(f'... {t.strip()}', flush=True)
+                        log_transcript(t.strip(), '...')
                 emitter.new_segment.emit({
                     'text': t,
                     'is_final': is_final,
@@ -1160,7 +1172,7 @@ def assemblyai_thread():
                 if data.get('message_type') == 'FinalTranscript':
                     text = data.get('text', '').strip()
                     if text:
-                        print(f'>>> {text}', flush=True)
+                        log_transcript(text)
                         state.mark_success()
                         emitter.new_text.emit(text + '\n')
                 elif data.get('message_type') == 'PartialTranscript':
@@ -1275,7 +1287,7 @@ def azure_thread():
         def on_recognized(evt):
             text = evt.result.text.strip()
             if text:
-                print(f'>>> {text}', flush=True)
+                log_transcript(text)
                 state.mark_success()
                 emitter.new_text.emit(text + '\n')
 
@@ -1402,7 +1414,7 @@ def _chunked_api_thread(provider_name, transcribe_fn):
                     text = transcribe_fn(audio_chunk, sample_rate)
                     if text and text.strip():
                         text = text.strip()
-                        print(f'>>> {text}', flush=True)
+                        log_transcript(text)
                         state.mark_success()
                         emitter.new_text.emit(text + '\n')
                 except Exception as e:

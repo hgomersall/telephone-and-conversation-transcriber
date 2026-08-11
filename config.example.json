@@ -19,6 +19,7 @@
 
     "gateway_ip": "",
 
+    "log_transcripts": false,
     "log_interims": false,
 
     "offline_vad": true,
