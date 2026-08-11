@@ -311,7 +311,9 @@ Silero VAD decides what counts as speech, replacing a fixed amplitude threshold.
 
 There are two states. The **indicator** follows the raw detection, so the microphone icon responds as you speak — its job is to answer "is this thing hearing me?" immediately. Decisions about the audio itself use a **debounced** state with a minimum duration and a hangover, so a pause between two words is not mistaken for the end of a sentence.
 
-It ships inside faster-whisper, so there is nothing to download. Set `offline_vad: false` to fall back to the old behaviour. Turn on `log_vad` to record every speech/silence transition with a timestamp:
+It ships inside faster-whisper, so there is nothing to download. Set `offline_vad: false` to fall back to the old behaviour.
+
+`log_vad` is on by default and records every speech/silence transition with a timestamp. A silent room produces no lines at all, since they are emitted per transition:
 
 ```
 VAD 1770825601.412 speech
@@ -328,7 +330,7 @@ While nobody is speaking, audio is held in a ring buffer and a `KeepAlive` goes 
 
 Set `vad_gate: false` to stream continuously as before. `preroll_s` (default 0.5) trades billed audio against safety margin at the start of an utterance — measured against real speech, 0.5 s transmits from about 470 ms before the first sound, for roughly 2% more billed audio than 0.1 s.
 
-With `log_vad` on, the saving is reported directly rather than inferred from a bill:
+The saving is reported directly rather than inferred from a bill (part of `log_vad`, on by default):
 
 ```
 GATE billed 41s of 300s (13.7%)

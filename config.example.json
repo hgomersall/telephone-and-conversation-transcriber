@@ -27,7 +27,7 @@
     "vad_min_silence_ms": 500,
     "vad_hangover_s": 1.0,
     "vad_indicator": true,
-    "log_vad": false,
+    "log_vad": true,
 
     "vad_gate": true,
     "preroll_s": 0.5,

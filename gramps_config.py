@@ -63,7 +63,11 @@ DEFAULTS = {
     'vad_min_silence_ms': 500,    # ignore gaps shorter than this
     'vad_hangover_s': 1.0,        # keep reporting speech this long after it stops
     'vad_indicator': True,        # show speech activity in the on-screen status
-    'log_vad': False,             # log every speech/silence transition with a timestamp
+    # Log speech/silence transitions and the periodic billed-vs-elapsed report.
+    # On by default: without it there is no way to tell what the gate is
+    # actually saving, or to reduce a run to a speech duty cycle. Lines are
+    # emitted per transition, so a silent room produces none.
+    'log_vad': True,
 
     # Gating the Deepgram stream. Deepgram bills on audio sent rather than on
     # connection time, and KeepAlive is not charged, so the socket stays open
