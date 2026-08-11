@@ -273,11 +273,16 @@ def status_display(status, speaking):
 
     if status in ('vosk', 'deepgram', 'assemblyai', 'azure', 'google', 'openai',
                   'groq', 'interfaze', 'whisper', 'faster-whisper'):
-        # Dim when nothing is being said, bright when it is. On the clock view
-        # this is the only evidence the device is still hearing anything.
-        if CONFIG.get('vad_indicator', True) and not speaking:
-            return '🎤', 'font-size: 30px; background: transparent; opacity: 0.4; color: #666666;'
-        return '🎤', 'font-size: 30px; background: transparent;'
+        if not CONFIG.get('vad_indicator', True):
+            return '🎤', 'font-size: 30px; background: transparent;'
+        # The speech state is carried by the glyph, not by colour or opacity.
+        # Qt Style Sheets have no `opacity` property, and `color` does not tint
+        # a colour emoji — so styling 🎤 renders identically either way, which
+        # reads as "permanently active". A filled vs hollow circle cannot be
+        # ignored by any font, and being plain text it takes the colour too.
+        if speaking:
+            return '🎤 ●', 'font-size: 30px; background: transparent; color: #00ff66;'
+        return '🎤 ○', 'font-size: 30px; background: transparent; color: #666666;'
 
     return '', 'background: transparent;'
 
