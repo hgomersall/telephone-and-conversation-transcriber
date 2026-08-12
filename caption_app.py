@@ -519,6 +519,27 @@ class AudioGate:
         return self.sent_bytes / float(self.bytes_per_sec)
 
 
+def emit_utterance_end():
+    """Signal end-of-utterance from our own VAD rather than the provider's.
+
+    Both services derive end-of-utterance from silence — Deepgram through
+    endpointing, Speechmatics through end_of_utterance_silence_trigger. The
+    cost gate withholds exactly that silence, so neither ever sees an utterance
+    finish and the captions run together into one unbroken paragraph.
+
+    The gate closing IS the end of an utterance: our VAD heard the speech stop,
+    which is why it closed. So the signal is generated here instead.
+
+    Timing does not matter. add_segment records this and applies the break to
+    the NEXT text, so emitting it any time before the next utterance produces
+    identical output — which is why it can safely wait for the gate's hangover
+    and be sure every pending final has arrived first.
+    """
+    emitter.new_segment.emit({
+        'text': '', 'is_final': True, 'speech_final': True, 'speaker': None,
+    })
+
+
 def write_phone_status(active):
     """Write phone status file"""
     try:
@@ -1131,13 +1152,17 @@ def deepgram_thread():
                         was_open = gate.open
                         for outgoing in gate.feed(chunk, want_open):
                             ws.send(outgoing, opcode=2)
-                        if gating and gate.open != was_open and CONFIG.get('log_vad'):
-                            # Distinct from the VAD lines: the detector reports
-                            # whether anyone is speaking, this reports whether
-                            # audio is actually being transmitted. They differ
-                            # by gate_hangover_s, which is the point.
-                            print(f'GATE {time.time():.3f} '
-                                  f'{"open" if gate.open else "closed"}', flush=True)
+                        if gating and gate.open != was_open:
+                            if CONFIG.get('log_vad'):
+                                # Distinct from the VAD lines: the detector
+                                # reports whether anyone is speaking, this
+                                # reports whether audio is being transmitted.
+                                # They differ by gate_hangover_s, which is the
+                                # point.
+                                print(f'GATE {time.time():.3f} '
+                                      f'{"open" if gate.open else "closed"}', flush=True)
+                            if not gate.open:
+                                emit_utterance_end()
                         if not gate.open:
                             if now - last_keepalive >= keepalive_every:
                                 # Text frame. Sent as binary it would be treated
@@ -1486,9 +1511,12 @@ def speechmatics_thread():
                         for outgoing in gate.feed(chunk, want_open):
                             ws.send(outgoing, opcode=2)
                             seq[0] += 1
-                        if gating and gate.open != was_open and CONFIG.get('log_vad'):
-                            print(f'GATE {now:.3f} '
-                                  f'{"open" if gate.open else "closed"}', flush=True)
+                        if gating and gate.open != was_open:
+                            if CONFIG.get('log_vad'):
+                                print(f'GATE {now:.3f} '
+                                      f'{"open" if gate.open else "closed"}', flush=True)
+                            if not gate.open:
+                                emit_utterance_end()
                     except Exception as e:
                         print(f'Speechmatics send error: {e}', flush=True)
                         break

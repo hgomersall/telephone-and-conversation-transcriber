@@ -259,6 +259,29 @@ def test_incremental_finals_stay_on_one_line():
           str(s.lines()))
 
 
+def test_gate_close_breaks_the_paragraph():
+    """With the cost gate on, the provider never sees an utterance end.
+
+    Both services derive end-of-utterance from silence, and the gate withholds
+    exactly that silence — so without a locally generated signal the captions
+    run together into one unbroken paragraph. The gate closing supplies it.
+    """
+    # what the provider gives us while gated: finals, never a speech_final
+    s = Sim()
+    for utt in ['first thing said', 'second thing said', 'third thing said']:
+        s.add_segment(utt, True, 0, speech_final=False)
+    check('without a local signal it is one paragraph', len(s.lines()) == 1,
+          f'{len(s.lines())} lines')
+
+    # the same, with emit_utterance_end() firing as the gate closes
+    s = Sim()
+    for utt in ['first thing said', 'second thing said', 'third thing said']:
+        s.add_segment(utt, True, 0, speech_final=False)
+        s.add_segment('', True, None, speech_final=True)   # gate closed
+    check('gate close breaks it into utterances', len(s.lines()) == 3,
+          f'{len(s.lines())} lines: {[l for _, l in s.lines()]}')
+
+
 def test_add_text_commits_provisional():
     """add_text must clear _prov_start, independently of any reconnect.
 
