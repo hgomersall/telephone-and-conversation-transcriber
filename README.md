@@ -103,7 +103,7 @@ The transcriber is primarily built and tested with **English (British English)**
 | Engine | Languages | Notes |
 |---|---|---|
 | **Deepgram** | 36+ | Very good English, with support for Spanish, French, German, Hindi, and many more |
-| **Speechmatics** | 50+ | Strong diarization, with controls for speaker stability |
+| **Speechmatics** | 50+ | Strong diarization; `speechmatics_model` selects `standard` or `enhanced` |
 | **AssemblyAI** | 99+ | Wide language coverage |
 | **Azure Speech** | 100+ | Excellent multilingual support |
 | **Google Cloud** | 125+ | Widest language coverage |

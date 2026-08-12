@@ -20,7 +20,7 @@
 
     "speechmatics_url": "wss://eu2.rt.speechmatics.com/v2",
     "speechmatics_language": "en",
-    "speechmatics_operating_point": "enhanced",
+    "speechmatics_model": "enhanced",
     "speechmatics_max_delay": 1.0,
     "speechmatics_prefer_current_speaker": true,
     "speechmatics_end_of_utterance_s": 0.8,

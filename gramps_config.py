@@ -53,7 +53,12 @@ DEFAULTS = {
     # global.rt routes to the nearest.
     'speechmatics_url': 'wss://eu2.rt.speechmatics.com/v2',
     'speechmatics_language': 'en',
-    'speechmatics_operating_point': 'enhanced',
+    # standard or enhanced. Enhanced is the more accurate; standard favours
+    # throughput. Defaulting to enhanced because a misread word costs the
+    # reader more here than a little latency does. Speechmatics defaults to
+    # standard if unset. (melia-1 exists but is batch-only, so it cannot be
+    # used for live captions.)
+    'speechmatics_model': 'enhanced',
     # Delay between the end of a word and its final transcript. Their range is
     # 0.7-4s; lower is more responsive, which is what this device needs.
     'speechmatics_max_delay': 1.0,

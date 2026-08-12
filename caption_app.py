@@ -1300,9 +1300,19 @@ def speechmatics_thread():
         # one remote talker, and billed separately.
         diarize = bool(CONFIG.get('speaker_colours', True)) and not state.use_phone_audio
 
+        # `model` is the live field; `operating_point` is deprecated but still
+        # accepted. An invalid value is a protocol_error that kills the session
+        # outright, so it is checked here rather than left to fail on a device
+        # nobody is watching. melia-1 exists but is batch-only.
+        model = str(CONFIG.get('speechmatics_model', 'enhanced'))
+        if model not in ('standard', 'enhanced'):
+            print(f'Speechmatics: model {model!r} is not valid for realtime '
+                  f'(use standard or enhanced) — falling back to enhanced', flush=True)
+            model = 'enhanced'
+
         transcription_config = {
             'language': CONFIG.get('speechmatics_language', 'en'),
-            'operating_point': CONFIG.get('speechmatics_operating_point', 'enhanced'),
+            'model': model,
             'enable_partials': True,
             'max_delay': float(CONFIG.get('speechmatics_max_delay', 1.0)),
         }
@@ -1369,10 +1379,27 @@ def speechmatics_thread():
                         'speech_final': True, 'speaker': None,
                     })
                     return
+                if kind == 'Info':
+                    # Surfaces the concurrent-session quota, which is small
+                    # (2 on a trial account) and is the thing a reconnect loop
+                    # will exhaust.
+                    if data.get('type') == 'concurrent_session_usage':
+                        print(f"Speechmatics sessions: {data.get('usage')} of "
+                              f"{data.get('quota')}", flush=True)
+                    return
+
                 if kind in ('Error', 'Warning'):
                     print(f"Speechmatics {kind}: {data.get('type')} "
                           f"{data.get('reason', '')}", flush=True)
                     if kind == 'Error':
+                        if data.get('type') == 'quota_exceeded':
+                            # The previous session has not finished closing.
+                            # Reconnecting straight away is guaranteed to fail
+                            # again, so wait for it to drain rather than
+                            # burning restarts against a wall.
+                            print('Speechmatics: waiting for the previous '
+                                  'session to close', flush=True)
+                            time.sleep(10)
                         ws_error.set()
                         emitter.status_changed.emit('error')
                     return
