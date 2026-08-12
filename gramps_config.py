@@ -120,10 +120,14 @@ DEFAULTS = {
     # talking. Phone calls are gated regardless — they never had diarization.
     'speaker_colours': True,
 
-    # Gating the Deepgram stream. Deepgram bills on audio sent rather than on
-    # connection time, and KeepAlive is not charged, so the socket stays open
-    # for the life of the thread and only the audio is withheld. Set vad_gate
-    # false to stream continuously as before.
+    # Gating the audio stream. Both providers bill on audio sent rather than on
+    # connection time, so holding a socket open costs nothing and only the
+    # audio is withheld. Deepgram documents this and does not charge for
+    # KeepAlive. Speechmatics was measured: two 60s connections four minutes
+    # apart, one submitting 60s of audio and one submitting 5s, billed a minute
+    # and about four seconds respectively.
+    #
+    # Set vad_gate false to stream continuously as before.
     #
     'vad_gate': True,
 

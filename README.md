@@ -361,7 +361,9 @@ Those lines reduce to a speech duty cycle, which is what determines how much a c
 
 ### Cost gating
 
-Deepgram bills on audio *sent*, not on connection time, and `KeepAlive` messages are not charged — so the websocket is held open for the life of the session and only the audio is withheld. Closing and reopening would cost a reconnect at the start of every utterance.
+Both Deepgram and Speechmatics bill on audio *sent*, not on connection time, so the websocket is held open for the life of the session and only the audio is withheld. Closing and reopening would cost a reconnect at the start of every utterance.
+
+Deepgram documents this and does not charge for `KeepAlive`. Speechmatics was measured: two 60-second connections, one submitting 60 seconds of audio and one submitting 5, billed a minute and about four seconds respectively.
 
 While nobody is speaking, audio is held in a ring buffer and a `KeepAlive` goes out every few seconds. When speech starts, that buffer is flushed first and then audio streams live. The buffer is what stops the first word being clipped: a detector only knows speech began after hearing some of it, and the onset of a word is its quietest part.
 
