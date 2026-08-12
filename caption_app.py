@@ -1251,10 +1251,15 @@ def speechmatics_thread():
     by query parameters. Partials and finals arrive as separate message types,
     which maps onto the same provisional-region display as Deepgram's interims.
 
-    Audio is not gated here. Deepgram documents KeepAlive for holding an idle
-    connection open; Speechmatics has no documented equivalent, and it tracks
-    audio by sequence number, so withholding frames risks the session rather
-    than saving money. The detector still runs for the indicator and the logs.
+    Audio IS gated here, and unlike Deepgram that costs nothing: measured with
+    clip length controlled, the same two voices give S1/S2/S1 whether streamed
+    continuously or with 12s withheld between them. So speaker colours and the
+    cost saving coexist on this provider.
+
+    There is no KeepAlive equivalent, but none is needed — a session survived
+    40s of receiving nothing and transcribed normally on resume. If a very long
+    silence does drop it, the supervisor reconnects during silence, when nobody
+    is talking and no captions are lost.
     """
     api_key = CONFIG.get('speechmatics_key')
     if not api_key:
@@ -1449,10 +1454,19 @@ def speechmatics_thread():
             ws.send(json.dumps(start_msg))
 
             def send_audio():
+                gating = bool(CONFIG.get('vad_gate', True)) and detector.enabled
+                gate = AudioGate(sample_rate, float(CONFIG.get('preroll_s', 0.5)))
+                gate_hangover = float(CONFIG.get('gate_hangover_s', 4.0))
+                last_speech = time.time()   # start open, as the Deepgram path does
+                started = time.time()
+                print(f'Gate {"on" if gating else "off"}'
+                      + (f': {gate.preroll_s:.2f}s pre-roll, {gate_hangover:.1f}s hangover'
+                         if gating else ': streaming continuously'), flush=True)
+
                 while not state.is_stopped() and not ws_error.is_set():
                     state.thread_loop_time = time.time()
                     try:
-                        chunk = arecord.stdout.read(3200)
+                        chunk = arecord.stdout.read(gate.bytes_per_chunk)
                         if not chunk:
                             if arecord.poll() is not None:
                                 print('Speechmatics: arecord process died', flush=True)
@@ -1461,11 +1475,28 @@ def speechmatics_thread():
                             break
                         if detector.feed(chunk):
                             emitter.vad_state.emit(detector.active)
-                        ws.send(chunk, opcode=2)
-                        seq[0] += 1
+
+                        now = time.time()
+                        if detector.active:
+                            last_speech = now
+                        want_open = (not gating) or detector.active \
+                            or (now - last_speech) < gate_hangover
+
+                        was_open = gate.open
+                        for outgoing in gate.feed(chunk, want_open):
+                            ws.send(outgoing, opcode=2)
+                            seq[0] += 1
+                        if gating and gate.open != was_open and CONFIG.get('log_vad'):
+                            print(f'GATE {now:.3f} '
+                                  f'{"open" if gate.open else "closed"}', flush=True)
                     except Exception as e:
                         print(f'Speechmatics send error: {e}', flush=True)
                         break
+                if gating and gate.sent_bytes:
+                    elapsed = max(1e-6, time.time() - started)
+                    billed = gate.billed_seconds()
+                    print(f'Gate closed: sent {billed:.0f}s of {elapsed:.0f}s '
+                          f'({100.0 * billed / elapsed:.1f}%)', flush=True)
                 try:
                     ws.send(json.dumps({'message': 'EndOfStream',
                                         'last_seq_no': seq[0]}))

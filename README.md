@@ -365,9 +365,9 @@ Deepgram bills on audio *sent*, not on connection time, and `KeepAlive` messages
 
 While nobody is speaking, audio is held in a ring buffer and a `KeepAlive` goes out every few seconds. When speech starts, that buffer is flushed first and then audio streams live. The buffer is what stops the first word being clipped: a detector only knows speech began after hearing some of it, and the onset of a word is its quietest part.
 
-**Gating and speaker colouring cannot both be on.** Withholding audio breaks speaker labelling, and this was measured on two independent services rather than inferred. Deepgram collapses to a single speaker intermittently. Speechmatics, given two voices that produce a clean `S1 / S2 / S1` when streamed continuously, returns one speaker for everything once the silence between them is withheld.
+**On Deepgram, gating and speaker colouring cannot both be on.** Gating makes its speaker labels collapse to a single speaker, intermittently — which is worse than reliably, because then the absence of a colour change means nothing either and a reader who cannot hear the room has no way to tell a good run from a bad one. `speaker_colours` wins by default.
 
-That looks inherent rather than incidental — a diarizer builds its voice models from continuous audio, and the silence a cost gate removes is part of the context it uses to tell people apart. It is not worth re-investigating per provider.
+**Speechmatics is unaffected**, so you get both there. Measured with clip length controlled: the same two voices give `S1 / S2 / S1` whether streamed continuously or with 12 seconds of audio withheld between them.
 
 Intermittent is worse than broken here. Colour means "someone else is speaking", so if it only sometimes means that, the *absence* of a colour change stops meaning anything either, and a reader who cannot hear the room has no way to tell a good run from a bad one.
 
