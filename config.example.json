@@ -23,6 +23,7 @@
     "speechmatics_operating_point": "enhanced",
     "speechmatics_max_delay": 1.0,
     "speechmatics_prefer_current_speaker": true,
+    "speechmatics_end_of_utterance_s": 0.8,
 
     "gateway_ip": "",
 

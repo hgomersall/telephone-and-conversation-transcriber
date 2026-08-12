@@ -1306,6 +1306,14 @@ def speechmatics_thread():
             'enable_partials': True,
             'max_delay': float(CONFIG.get('speechmatics_max_delay', 1.0)),
         }
+        # Proper end-of-turn signal. Without it there is nothing to hang a
+        # paragraph break on, because a Speechmatics final is not the end of an
+        # utterance — see below.
+        eou = float(CONFIG.get('speechmatics_end_of_utterance_s', 0.8))
+        if eou > 0:
+            transcription_config['conversation_config'] = {
+                'end_of_utterance_silence_trigger': eou,
+            }
         if diarize:
             transcription_config['diarization'] = 'speaker'
             # Knobs Deepgram does not offer, aimed at unstable labelling.
@@ -1352,6 +1360,15 @@ def speechmatics_thread():
                     emitter.status_changed.emit('speechmatics')
                     emitter.mode_ready.emit('online')
                     return
+                if kind == 'EndOfUtterance':
+                    # An empty final carrying speech_final: add_segment commits
+                    # whatever is on screen and starts the next segment in a
+                    # new paragraph.
+                    emitter.new_segment.emit({
+                        'text': '', 'is_final': True,
+                        'speech_final': True, 'speaker': None,
+                    })
+                    return
                 if kind in ('Error', 'Warning'):
                     print(f"Speechmatics {kind}: {data.get('type')} "
                           f"{data.get('reason', '')}", flush=True)
@@ -1381,9 +1398,13 @@ def speechmatics_thread():
                 emitter.new_segment.emit({
                     'text': text,
                     'is_final': is_final,
-                    # Speechmatics finalises a segment at max_delay rather than
-                    # signalling end-of-utterance, so every final ends one.
-                    'speech_final': is_final,
+                    # NOT is_final. Verified against the live service: a
+                    # Speechmatics final carries only the newly-finalised
+                    # words, so a 10s clip produced 22 of them — "He ",
+                    # "hoped ", "there would ". Treating each as the end of an
+                    # utterance would break the line after every word or two.
+                    # EndOfUtterance is what actually ends one.
+                    'speech_final': False,
                     'speaker': speaker,
                 })
             except Exception as e:

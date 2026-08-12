@@ -63,6 +63,10 @@ DEFAULTS = {
     'speechmatics_max_speakers': None,
     'speechmatics_prefer_current_speaker': True,
     'speechmatics_speaker_sensitivity': None,
+    # Silence that ends an utterance, producing an EndOfUtterance message. This
+    # is what paragraph breaks hang on: a Speechmatics "final" carries only the
+    # newly-finalised words, not the end of anything. 0 disables it.
+    'speechmatics_end_of_utterance_s': 0.8,
 
     # Used by the network watchdog
     'gateway_ip': None,

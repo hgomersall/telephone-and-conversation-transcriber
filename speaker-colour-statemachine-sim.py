@@ -240,6 +240,25 @@ def test_offline_interleave_does_not_wipe():
         check(f'offline interleave: kept "{expected}"', expected in s.doc, s.doc)
 
 
+def test_incremental_finals_stay_on_one_line():
+    """Speechmatics finals carry only the newly-finalised words.
+
+    A 10s clip produced 22 of them — "He ", "hoped ", "there would ". If each
+    were treated as the end of an utterance the display would break the line
+    after every word or two. Only an explicit end-of-utterance may do that.
+    """
+    s = Sim()
+    for word in ['He', 'hoped', 'there', 'would', 'be', 'stew', 'for', 'dinner.']:
+        s.add_segment(word, True, 0, speech_final=False)
+    check('incremental finals do not each break the line', len(s.lines()) == 1,
+          f'{len(s.lines())} lines: {[l for _, l in s.lines()]}')
+
+    s.add_segment('', True, None, speech_final=True)   # EndOfUtterance
+    s.add_segment('Next', True, 0, speech_final=False)
+    check('an explicit end-of-utterance does break it', len(s.lines()) == 2,
+          str(s.lines()))
+
+
 def test_add_text_commits_provisional():
     """add_text must clear _prov_start, independently of any reconnect.
 
