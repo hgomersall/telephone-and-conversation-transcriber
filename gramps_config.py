@@ -104,13 +104,22 @@ DEFAULTS = {
 
     # Colour and mark caption text when the speaker changes (Deepgram, room mic).
     #
-    # Mutually exclusive with vad_gate, and this one wins. Withholding audio
-    # makes Deepgram's speaker labels collapse intermittently — sometimes fine,
-    # sometimes every utterance comes back as speaker 0. Intermittent is why
-    # this is an exclusion rather than a setting to tune: a colour change that
-    # only sometimes means a new speaker is worse than none at all, because
-    # then no colour change means nothing either, and the reader cannot tell
-    # which run they are looking at.
+    # Mutually exclusive with vad_gate, and this one wins.
+    #
+    # Withholding audio breaks speaker labelling, and this is not a quirk of
+    # one provider — it was measured on two. Deepgram collapses to speaker 0
+    # intermittently. Speechmatics, given the same two voices that produce a
+    # clean S1/S2/S1 when streamed continuously, returns a single speaker for
+    # everything once the silence between them is withheld.
+    #
+    # That is inherent rather than incidental: a diarizer builds its voice
+    # models from continuous audio, and the silence a cost gate removes is part
+    # of the context it separates people with. Do not expect a streaming
+    # diarizer to survive gated audio.
+    #
+    # An intermittent speaker indicator is worse than none, because then no
+    # colour change means nothing either and the reader cannot tell which run
+    # they are looking at.
     #
     # Set this false if the cost saving matters more than knowing who is
     # talking. Phone calls are gated regardless — they never had diarization.
