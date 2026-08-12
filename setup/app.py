@@ -142,6 +142,7 @@ def api_save():
         'stt_provider': data.get('stt_provider', 'deepgram'),
         'offline_model': data.get('offline_model', 'faster-whisper'),
         'deepgram_key': data.get('deepgram_key', ''),
+        'speechmatics_key': data.get('speechmatics_key', ''),
         'assemblyai_key': data.get('assemblyai_key', ''),
         'azure_key': data.get('azure_key', ''),
         'azure_region': data.get('azure_region', 'uksouth'),
@@ -177,7 +178,8 @@ def api_status():
     caption = get_service_status('caption')
     mute = get_service_status('gramps-mute')
     config = load_config(verbose=False)
-    configured = bool(config.get('room_device') or config.get('deepgram_key'))
+    configured = bool(config.get('room_device') or config.get('deepgram_key')
+                      or config.get('speechmatics_key'))
     return jsonify({
         'caption': caption,
         'mute': mute,

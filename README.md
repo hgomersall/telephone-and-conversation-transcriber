@@ -87,7 +87,7 @@ You don't need to type anything on the touchscreen. Here's how it goes:
 
 - **Live Captions** — words appear while the speaker is still talking, not after they stop
 - **Speaker Turn Colouring** — colour and a `▸` marker change when the speaker changes (room mic, Deepgram)
-- **7 Cloud Services** — Deepgram, AssemblyAI, Azure, Groq, Interfaze, OpenAI Whisper, Google Cloud
+- **8 Cloud Services** — Deepgram, Speechmatics, AssemblyAI, Azure, Groq, Interfaze, OpenAI Whisper, Google Cloud
 - **3 Offline Engines** — Faster Whisper, Vosk, Whisper.cpp — works even without internet
 - **Dual Audio Sources** — transcribes both landline phone calls and in-room conversation
 - **Flip-Clock Display** — split-flap style clock when idle, auto-dims at night
@@ -103,6 +103,7 @@ The transcriber is primarily built and tested with **English (British English)**
 | Engine | Languages | Notes |
 |---|---|---|
 | **Deepgram** | 36+ | Very good English, with support for Spanish, French, German, Hindi, and many more |
+| **Speechmatics** | 50+ | Strong diarization, with controls for speaker stability |
 | **AssemblyAI** | 99+ | Wide language coverage |
 | **Azure Speech** | 100+ | Excellent multilingual support |
 | **Google Cloud** | 125+ | Widest language coverage |
@@ -122,6 +123,7 @@ The setup wizard lets you choose from 7 different cloud speech services. Here's 
 | Service | Speed | Free tier | Cost after free tier | Best for |
 |---|---|---|---|---|
 | **Deepgram** | Instant | $200 credit on signup | ~$0.004/min | Best all-round choice |
+| **Speechmatics** | Instant | Free trial | See their pricing | Best speaker separation |
 | **AssemblyAI** | Instant | 100 hours free | ~$0.006/min | Great accuracy |
 | **Azure Speech** | Instant | 5 hours/month free forever | ~$0.01/min | If you already use Microsoft |
 | **Groq** | Few seconds delay | Free (~8 hours/day) | Free | Free and very good |
@@ -420,6 +422,7 @@ GATE billed 41s of 300s (13.7%)
 | `requirements.txt` | Pinned lockfile, generated from `pyproject.toml` |
 | `speaker-colour-statemachine-sim.py` | PyQt-free tests for the interim/final/speaker-change logic |
 | `vad-detector-test.py` | Tests for the Silero speech detector |
+| `speechmatics-parse-test.py` | Tests for the Speechmatics response parser |
 | `config.example.json` | Template for `config.json` (all keys optional) |
 | `mute_helper.py` | Phone activity detector — monitors USB recorder |
 | `install.sh` | One-line installer for fresh Raspberry Pi |

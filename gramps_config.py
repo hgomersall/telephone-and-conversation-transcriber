@@ -47,6 +47,22 @@ DEFAULTS = {
     'interfaze_key': None,
     'openai_key': None,
     'google_key': None,
+    'speechmatics_key': None,
+
+    # Speechmatics realtime. Regional endpoints exist for data residency;
+    # global.rt routes to the nearest.
+    'speechmatics_url': 'wss://eu2.rt.speechmatics.com/v2',
+    'speechmatics_language': 'en',
+    'speechmatics_operating_point': 'enhanced',
+    # Delay between the end of a word and its final transcript. Their range is
+    # 0.7-4s; lower is more responsive, which is what this device needs.
+    'speechmatics_max_delay': 1.0,
+    # Diarization stability controls, which Deepgram does not offer. Deepgram's
+    # labels proved unusable here once audio was gated, so these are worth
+    # having: prefer_current_speaker reduces switching between similar voices.
+    'speechmatics_max_speakers': None,
+    'speechmatics_prefer_current_speaker': True,
+    'speechmatics_speaker_sensitivity': None,
 
     # Used by the network watchdog
     'gateway_ip': None,

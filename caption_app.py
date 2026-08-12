@@ -18,6 +18,8 @@ USAGE = """Gramps Captions — live transcription for landline and in-room speec
 
   --log            print recognised speech to this terminal
   --log-interims   as --log, plus every partial result (very noisy)
+  --log-raw        as --log, plus raw provider messages (for debugging a
+                   provider's response format)
 
 Speech is not logged by default. These are command-line flags rather than
 config keys on purpose: a flag lasts exactly as long as the process you typed
@@ -67,14 +69,19 @@ _ARGV = sys.argv[1:]
 # Recognised speech is NOT logged unless explicitly asked for. It would
 # otherwise be a verbatim record of every conversation and phone call in the
 # house — including callers who never agreed to any of it.
-LOG_TRANSCRIPTS = bool(CONFIG.get('log_transcripts')) or '--log' in _ARGV or '--log-interims' in _ARGV
-LOG_TRANSCRIPTS_VIA = ('--log flag' if ('--log' in _ARGV or '--log-interims' in _ARGV)
+_LOG_FLAGS = [a for a in _ARGV if a in ('--log', '--log-interims', '--log-raw')]
+LOG_TRANSCRIPTS = bool(CONFIG.get('log_transcripts')) or bool(_LOG_FLAGS)
+LOG_TRANSCRIPTS_VIA = (f'{_LOG_FLAGS[0]} flag' if _LOG_FLAGS
                        else 'log_transcripts in config')
 
 # Interim results are extremely noisy — one line per partial — but they are
 # what the latency diagnostic needs. Content either way, so they follow the
 # same rule.
 LOG_INTERIMS = bool(CONFIG.get('log_interims')) or '--log-interims' in _ARGV
+
+# Raw provider messages, for working out a new provider's response shape.
+# Contains transcript text, so it follows the same rule as everything else.
+LOG_RAW = '--log-raw' in _ARGV
 
 # Colour and mark caption text on speaker change. Off means no explicit
 # character format is applied, which is what lets the colour-scheme buttons
@@ -318,8 +325,9 @@ def status_display(status, speaking):
     if status == 'restarting':
         return '🔄', 'font-size: 30px; background: transparent;'
 
-    if status in ('vosk', 'deepgram', 'assemblyai', 'azure', 'google', 'openai',
-                  'groq', 'interfaze', 'whisper', 'faster-whisper'):
+    if status in ('vosk', 'deepgram', 'speechmatics', 'assemblyai', 'azure',
+                  'google', 'openai', 'groq', 'interfaze', 'whisper',
+                  'faster-whisper'):
         if not CONFIG.get('vad_indicator', True):
             return '🎤', 'font-size: 30px; background: transparent;'
         # The speech state is carried by the glyph, not by colour or opacity.
@@ -1200,6 +1208,263 @@ def deepgram_thread():
             emitter.thread_died.emit('online')
 
 
+def parse_speechmatics_transcript(data):
+    """(transcript, speaker) from an AddTranscript/AddPartialTranscript message.
+
+    Deliberately defensive about the response shape: the transcript is taken
+    from metadata where present and rebuilt from the word results otherwise.
+    Guessing wrong would present as a silent recogniser rather than a parse
+    bug, and a silent recogniser is the one thing this device must never be.
+    """
+    text = ''
+    meta = data.get('metadata') or {}
+    if isinstance(meta, dict):
+        text = meta.get('transcript') or ''
+
+    results = data.get('results') or []
+    if not text:
+        parts = []
+        for r in results:
+            alts = r.get('alternatives') or []
+            if alts:
+                parts.append(alts[0].get('content', ''))
+        text = ' '.join(p for p in parts if p)
+
+    labels = []
+    for r in results:
+        alts = r.get('alternatives') or []
+        if alts:
+            spk = alts[0].get('speaker')
+            # UU is Speechmatics for "unknown". Treating it as a speaker would
+            # read as a turn change and recolour the captions for no reason.
+            if spk and spk != 'UU':
+                labels.append(spk)
+    speaker = max(set(labels), key=labels.count) if labels else None
+    return text, speaker
+
+
+def speechmatics_thread():
+    """Run Speechmatics realtime streaming.
+
+    Protocol differs from Deepgram: JSON control messages plus binary audio
+    frames, with the session opened by a StartRecognition message rather than
+    by query parameters. Partials and finals arrive as separate message types,
+    which maps onto the same provisional-region display as Deepgram's interims.
+
+    Audio is not gated here. Deepgram documents KeepAlive for holding an idle
+    connection open; Speechmatics has no documented equivalent, and it tracks
+    audio by sequence number, so withholding frames risks the session rather
+    than saving money. The detector still runs for the indicator and the logs.
+    """
+    api_key = CONFIG.get('speechmatics_key')
+    if not api_key:
+        print('No Speechmatics API key', flush=True)
+        emitter.status_changed.emit('no-key')
+        state.thread_alive = False
+        emitter.thread_died.emit('online')
+        return
+
+    print('Starting Speechmatics...', flush=True)
+    emitter.status_changed.emit('connecting')
+    arecord = None
+
+    try:
+        import websocket
+        import json
+
+        audio_device = get_audio_device()
+        sample_rate = 8000 if state.use_phone_audio else 16000
+        print(f"Using audio device: {audio_device} @ {sample_rate}Hz", flush=True)
+
+        detector = SpeechDetector(sample_rate, label=' (speechmatics)')
+
+        for attempt in range(4):
+            arecord = subprocess.Popen(
+                ['arecord', '-D', audio_device, '-f', 'S16_LE', '-r', str(sample_rate),
+                 '-c', '1', '-t', 'raw', '-q'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            state.set_proc(arecord)
+            time.sleep(0.3)
+            if arecord.poll() is None:
+                print(f'arecord ready (attempt {attempt+1})', flush=True)
+                break
+            arecord = None
+            if attempt < 3:
+                time.sleep(1)
+
+        if not arecord:
+            raise RuntimeError('Could not start arecord after 4 attempts')
+
+        # Same rule as Deepgram: pointless on the phone tap, which has exactly
+        # one remote talker, and billed separately.
+        diarize = bool(CONFIG.get('speaker_colours', True)) and not state.use_phone_audio
+
+        transcription_config = {
+            'language': CONFIG.get('speechmatics_language', 'en'),
+            'operating_point': CONFIG.get('speechmatics_operating_point', 'enhanced'),
+            'enable_partials': True,
+            'max_delay': float(CONFIG.get('speechmatics_max_delay', 1.0)),
+        }
+        if diarize:
+            transcription_config['diarization'] = 'speaker'
+            # Knobs Deepgram does not offer, aimed at unstable labelling.
+            speaker_config = {}
+            if CONFIG.get('speechmatics_max_speakers'):
+                speaker_config['max_speakers'] = int(CONFIG['speechmatics_max_speakers'])
+            if CONFIG.get('speechmatics_prefer_current_speaker'):
+                speaker_config['prefer_current_speaker'] = True
+            if CONFIG.get('speechmatics_speaker_sensitivity') is not None:
+                speaker_config['speaker_sensitivity'] = float(
+                    CONFIG['speechmatics_speaker_sensitivity'])
+            if speaker_config:
+                transcription_config['speaker_diarization_config'] = speaker_config
+
+        start_msg = {
+            'message': 'StartRecognition',
+            'audio_format': {
+                'type': 'raw',
+                'encoding': 'pcm_s16le',
+                'sample_rate': sample_rate,
+            },
+            'transcription_config': transcription_config,
+        }
+
+        url = CONFIG.get('speechmatics_url') or 'wss://eu2.rt.speechmatics.com/v2'
+        emitter.speakers_reset.emit()
+
+        ws_error = threading.Event()
+        seq = [0]  # AddAudio messages sent, for EndOfStream
+
+        def extract(data):
+            return parse_speechmatics_transcript(data)
+
+        def on_message(ws, message):
+            try:
+                data = json.loads(message)
+                kind = data.get('message')
+
+                if LOG_RAW:
+                    print(f'SM<< {message[:800]}', flush=True)
+
+                if kind == 'RecognitionStarted':
+                    print('Speechmatics recognition started', flush=True)
+                    emitter.status_changed.emit('speechmatics')
+                    emitter.mode_ready.emit('online')
+                    return
+                if kind in ('Error', 'Warning'):
+                    print(f"Speechmatics {kind}: {data.get('type')} "
+                          f"{data.get('reason', '')}", flush=True)
+                    if kind == 'Error':
+                        ws_error.set()
+                        emitter.status_changed.emit('error')
+                    return
+                if kind not in ('AddTranscript', 'AddPartialTranscript'):
+                    return
+
+                is_final = kind == 'AddTranscript'
+                text, speaker = extract(data)
+                if not text or not text.strip():
+                    if is_final:
+                        emitter.new_segment.emit({
+                            'text': '', 'is_final': True,
+                            'speech_final': False, 'speaker': speaker,
+                        })
+                    return
+
+                state.mark_success()
+                if is_final:
+                    log_transcript(text.strip(), f'>>> [spk {speaker}]')
+                elif LOG_INTERIMS:
+                    log_transcript(text.strip(), '...')
+
+                emitter.new_segment.emit({
+                    'text': text,
+                    'is_final': is_final,
+                    # Speechmatics finalises a segment at max_delay rather than
+                    # signalling end-of-utterance, so every final ends one.
+                    'speech_final': is_final,
+                    'speaker': speaker,
+                })
+            except Exception as e:
+                print(f'Speechmatics parse error: {e}', flush=True)
+
+        def on_error(ws, error):
+            print(f'Speechmatics WS error: {error}', flush=True)
+            ws_error.set()
+
+        def on_close(ws, code, msg):
+            print(f'Speechmatics closed: {code} {msg}', flush=True)
+
+        def on_open(ws):
+            print('Speechmatics connected', flush=True)
+            ws.send(json.dumps(start_msg))
+
+            def send_audio():
+                while not state.is_stopped() and not ws_error.is_set():
+                    state.thread_loop_time = time.time()
+                    try:
+                        chunk = arecord.stdout.read(3200)
+                        if not chunk:
+                            if arecord.poll() is not None:
+                                print('Speechmatics: arecord process died', flush=True)
+                                break
+                            print('send_audio: arecord returned empty data, stopping', flush=True)
+                            break
+                        if detector.feed(chunk):
+                            emitter.vad_state.emit(detector.active)
+                        ws.send(chunk, opcode=2)
+                        seq[0] += 1
+                    except Exception as e:
+                        print(f'Speechmatics send error: {e}', flush=True)
+                        break
+                try:
+                    ws.send(json.dumps({'message': 'EndOfStream',
+                                        'last_seq_no': seq[0]}))
+                except Exception:
+                    pass
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+
+            threading.Thread(target=send_audio, daemon=True).start()
+
+        print('Connecting to Speechmatics...', flush=True)
+        ws = websocket.WebSocketApp(
+            url,
+            header={'Authorization': f'Bearer {api_key}'},
+            on_open=on_open,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close,
+        )
+        ws.run_forever(ping_interval=30, ping_timeout=10)
+
+    except Exception as e:
+        print(f'Speechmatics error: {e}', flush=True)
+        emitter.status_changed.emit('error')
+        import traceback
+        traceback.print_exc()
+    finally:
+        state.thread_alive = False
+        if arecord:
+            try:
+                arecord.terminate()
+                arecord.wait(timeout=2)
+            except Exception:
+                try:
+                    arecord.kill()
+                    arecord.wait(timeout=1)
+                except Exception:
+                    pass
+        state.kill_proc()
+        print('Speechmatics stopped', flush=True)
+
+        if not state.is_stopped():
+            emitter.thread_died.emit('online')
+
+
 def assemblyai_thread():
     """Run AssemblyAI real-time streaming via WebSocket"""
     api_key = CONFIG.get('assemblyai_key')
@@ -1686,6 +1951,7 @@ def start_transcription(mode):
         provider = CONFIG.get('stt_provider', 'deepgram')
         provider_threads = {
             'deepgram': deepgram_thread,
+            'speechmatics': speechmatics_thread,
             'assemblyai': assemblyai_thread,
             'azure': azure_thread,
             'groq': groq_thread,
@@ -2476,7 +2742,7 @@ def main():
     # Create QApplication FIRST — Qt signals require this
     # Our flags are not Qt's; hand it only what it understands.
     app = QApplication([sys.argv[0]] + [
-        a for a in sys.argv[1:] if a not in ('--log', '--log-interims')
+        a for a in sys.argv[1:] if a not in ('--log', '--log-interims', '--log-raw')
     ])
 
     try:

@@ -16,6 +16,13 @@
     "interfaze_key": "",
     "openai_key": "",
     "google_key": "",
+    "speechmatics_key": "",
+
+    "speechmatics_url": "wss://eu2.rt.speechmatics.com/v2",
+    "speechmatics_language": "en",
+    "speechmatics_operating_point": "enhanced",
+    "speechmatics_max_delay": 1.0,
+    "speechmatics_prefer_current_speaker": true,
 
     "gateway_ip": "",
 

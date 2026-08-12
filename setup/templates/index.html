@@ -102,6 +102,7 @@
                     <select id="stt-provider" class="device-select" onchange="pickProvider(this.value)">
                         <optgroup label="Words appear instantly as you speak">
                             <option value="deepgram">Deepgram (recommended — $200 free credit)</option>
+                            <option value="speechmatics">Speechmatics (best speaker separation)</option>
                             <option value="assemblyai">AssemblyAI (100 hours free)</option>
                             <option value="azure">Microsoft Azure (5 hours free/month)</option>
                         </optgroup>
@@ -131,6 +132,25 @@
                         <label for="deepgram-key">Your Deepgram key</label>
                         <input type="text" id="deepgram-key" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
                         <p class="help">It usually starts with "dg_" followed by a long string of letters and numbers.</p>
+                    </div>
+                </div>
+
+                <!-- Speechmatics -->
+                <div id="provider-speechmatics" class="provider-instructions" style="display:none">
+                    <div class="callout">
+                        <h3>You'll need a Speechmatics account</h3>
+                        <p class="muted">Speechmatics is the best at telling different people apart, so each speaker's words get their own colour.</p>
+                        <ol class="simple-steps">
+                            <li>Go to <a href="https://portal.speechmatics.com/signup" target="_blank" rel="noopener">portal.speechmatics.com</a> and create an account</li>
+                            <li>Open <strong>Settings</strong>, then <strong>API Keys</strong></li>
+                            <li>Click to create a new key and give it a name</li>
+                            <li>Copy the key and paste it below</li>
+                        </ol>
+                    </div>
+                    <div class="field-group">
+                        <label for="speechmatics-key">Your Speechmatics key</label>
+                        <input type="text" id="speechmatics-key" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
+                        <p class="help">Copy it as soon as you create it — the site won't show it to you again.</p>
                     </div>
                 </div>
 
@@ -429,9 +449,10 @@
         }
 
         // ─── Provider picker (switches instructions + key field) ─
-        const providers = ['deepgram', 'assemblyai', 'azure', 'groq', 'interfaze', 'openai', 'google'];
+        const providers = ['deepgram', 'speechmatics', 'assemblyai', 'azure', 'groq', 'interfaze', 'openai', 'google'];
         const providerNames = {
             deepgram: 'Deepgram',
+            speechmatics: 'Speechmatics',
             assemblyai: 'AssemblyAI',
             azure: 'Microsoft Azure',
             groq: 'Groq',
@@ -460,6 +481,7 @@
             const provider = getSelectedProvider();
             const keyFields = {
                 deepgram: 'deepgram-key',
+                speechmatics: 'speechmatics-key',
                 assemblyai: 'assemblyai-key',
                 azure: 'azure-key',
                 groq: 'groq-key',
@@ -513,6 +535,7 @@
                 stt_provider: provider,
                 offline_model: offlineModel,
                 deepgram_key: provider === 'deepgram' ? apiKey : '',
+                speechmatics_key: provider === 'speechmatics' ? apiKey : '',
                 assemblyai_key: provider === 'assemblyai' ? apiKey : '',
                 azure_key: provider === 'azure' ? apiKey : '',
                 azure_region: provider === 'azure' ? document.getElementById('azure-region').value.trim() : '',
@@ -576,6 +599,7 @@
             // Restore API keys
             const keyMap = {
                 deepgram_key: 'deepgram-key',
+                speechmatics_key: 'speechmatics-key',
                 assemblyai_key: 'assemblyai-key',
                 azure_key: 'azure-key',
                 groq_key: 'groq-key',
