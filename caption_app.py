@@ -1009,30 +1009,18 @@ def deepgram_thread():
         # which already has exactly one remote talker.
         diarize = bool(CONFIG.get('speaker_colours', True)) and not state.use_phone_audio
 
-        # Diarization and the gate do not coexist. Withholding audio makes
-        # Deepgram's speaker labels collapse to 0 — not reliably, which is
-        # worse: tested against a long hangover, a hangover long enough to
-        # bridge whole conversations, and a stream primed from the start, it
-        # worked occasionally and failed the rest of the time. The mechanism is
-        # undocumented and we could not pin it down.
-        #
-        # Intermittent is the reason this is a hard exclusion rather than a
-        # tuning knob. Colour here means "someone else is speaking"; if it only
-        # sometimes means that, then no colour change stops meaning anything,
-        # and the reader has no way to tell a working run from a broken one.
-        # A confident false claim is worse than no claim to someone who cannot
-        # hear the room to check it.
-        #
-        # Diarization wins by default because following who is speaking is the
-        # point of the device, and the bill is the maintainer's problem rather
-        # than the user's. Set speaker_colours false to gate instead. The phone
-        # tap is unaffected — it never had diarization, so it is always gated.
+        # Gating has been observed to make Deepgram's speaker labels collapse
+        # to 0, intermittently. That was never pinned down, and the same claim
+        # about Speechmatics turned out to be a measurement error — short clips
+        # rather than the gaps — so treat it as reported rather than
+        # established. Both run together here and you can judge; if the colours
+        # stop tracking, turn one of them off.
         gating_wanted = bool(CONFIG.get('vad_gate', True))
         gate_hangover = float(CONFIG.get('gate_hangover_s', 4.0))
         if diarize and gating_wanted:
-            print('Gate off: speaker colours need an unbroken stream, and the two '
-                  'do not work together. Set speaker_colours=false to gate the '
-                  'audio instead (phone calls are gated either way).', flush=True)
+            print('Note: gating has previously disturbed Deepgram speaker labels. '
+                  'If colours stop tracking the speaker, set vad_gate=false '
+                  '(or speaker_colours=false to keep the saving).', flush=True)
 
         if diarize:
             params.append('diarize_model=latest')
@@ -1101,7 +1089,7 @@ def deepgram_thread():
                 # KeepAlive is not charged — so the socket is held open for the
                 # life of the thread and only the audio is gated. Closing and
                 # reopening would cost a reconnect on every utterance.
-                gating = gating_wanted and detector.enabled and not diarize
+                gating = gating_wanted and detector.enabled
                 gate = AudioGate(sample_rate, float(CONFIG.get('preroll_s', 0.5)))
                 keepalive_every = float(CONFIG.get('keepalive_s', 4.0))
                 keepalive_msg = json.dumps({'type': 'KeepAlive'})

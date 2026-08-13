@@ -104,17 +104,16 @@ DEFAULTS = {
 
     # Colour and mark caption text when the speaker changes (Deepgram, room mic).
     #
-    # On DEEPGRAM this is mutually exclusive with vad_gate, and wins. Gating
-    # makes its speaker labels collapse to 0, intermittently — which is worse
-    # than reliably: a colour change that only sometimes means a new speaker
-    # leaves the absence of one meaning nothing either, and the reader cannot
-    # tell which run they are looking at.
-    #
-    # It is NOT a general property of streaming diarization. Speechmatics was
-    # measured with clip length controlled and is unaffected: the same two
+    # Works alongside vad_gate. On Speechmatics that is measured: the same two
     # voices give S1/S2/S1 whether streamed continuously or with 12s of audio
-    # withheld between them. So on Speechmatics you get both the speaker
-    # colours and the cost saving.
+    # withheld between them.
+    #
+    # On Deepgram, gating has been observed to make speaker labels collapse to
+    # 0, intermittently. That was never pinned down, and the equivalent claim
+    # about Speechmatics turned out to be a measurement error — too little
+    # audio per speaker rather than the gaps — so it is reported rather than
+    # established. If colours stop tracking the speaker on Deepgram, turn off
+    # vad_gate (or this, to keep the saving).
     #
     # Set this false if the cost saving matters more than knowing who is
     # talking. Phone calls are gated regardless — they never had diarization.

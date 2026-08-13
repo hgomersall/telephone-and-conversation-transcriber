@@ -367,9 +367,11 @@ Deepgram documents this and does not charge for `KeepAlive`. Speechmatics was me
 
 While nobody is speaking, audio is held in a ring buffer and a `KeepAlive` goes out every few seconds. When speech starts, that buffer is flushed first and then audio streams live. The buffer is what stops the first word being clipped: a detector only knows speech began after hearing some of it, and the onset of a word is its quietest part.
 
-**On Deepgram, gating and speaker colouring cannot both be on.** Gating makes its speaker labels collapse to a single speaker, intermittently — which is worse than reliably, because then the absence of a colour change means nothing either and a reader who cannot hear the room has no way to tell a good run from a bad one. `speaker_colours` wins by default.
+**Gating and speaker colouring run together.** On Speechmatics that is measured with clip length controlled — the same two voices give `S1 / S2 / S1` whether streamed continuously or with 12 seconds of audio withheld between them.
 
-**Speechmatics is unaffected**, so you get both there. Measured with clip length controlled: the same two voices give `S1 / S2 / S1` whether streamed continuously or with 12 seconds of audio withheld between them.
+On Deepgram, gating has been *observed* to make speaker labels collapse to one speaker, intermittently. That was never pinned down, and the equivalent claim about Speechmatics turned out to be a measurement error, so treat it as reported rather than established. If colours stop tracking the speaker there, turn off `vad_gate` — or `speaker_colours`, to keep the saving.
+
+Note that a diarizer needs several seconds of a voice to model it. Short interjections tend not to get their own colour on any provider.
 
 Intermittent is worse than broken here. Colour means "someone else is speaking", so if it only sometimes means that, the *absence* of a colour change stops meaning anything either, and a reader who cannot hear the room has no way to tell a good run from a bad one.
 
