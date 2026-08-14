@@ -321,6 +321,9 @@
                 </div>
             </div>
 
+            <p class="muted" id="config-path-line" style="display:none">Settings are saved in <code id="config-path"></code></p>
+            <p class="muted" id="config-warning" style="display:none; color:#cc6600"></p>
+
             <p class="muted">If something doesn't look right, click below to go through the setup again.</p>
             <button class="btn-secondary" onclick="goTo('step-welcome')">Run setup again</button>
         </div>
@@ -585,6 +588,22 @@
                         badge.textContent = 'Not running yet';
                         badge.className = 'status-badge stopped';
                         setTimeout(checkStatus, 3000);
+                    }
+
+                    // Which file is actually in effect. It can live in four
+                    // places now, so "I changed the settings and nothing
+                    // happened" is worth pre-empting.
+                    if (data.config_path) {
+                        document.getElementById('config-path').textContent = data.config_path;
+                        document.getElementById('config-path-line').style.display = '';
+                    }
+                    const warn = document.getElementById('config-warning');
+                    if (data.unknown_keys && data.unknown_keys.length) {
+                        warn.textContent = 'These settings are not recognised and are being ignored: '
+                            + data.unknown_keys.join(', ');
+                        warn.style.display = '';
+                    } else {
+                        warn.style.display = 'none';
                     }
                 })
                 .catch(() => {

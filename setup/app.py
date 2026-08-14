@@ -15,10 +15,36 @@ from flask import Flask, render_template, request, jsonify
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gramps_config import (  # noqa: E402
-    REPO_DIR, load_config, read_raw_config, save_config,
+    DEFAULTS, REPO_DIR, config_write_path, load_config, read_raw_config,
+    save_config, unknown_keys,
 )
 
 app = Flask(__name__)
+
+# Every setting this wizard writes. Checked against DEFAULTS at start-up rather
+# than discovered when a save produces a config the app then rejects.
+WIZARD_FIELDS = {
+    'room_device': '',
+    'phone_device': '',
+    'speech_mode': 'online',
+    'stt_provider': 'deepgram',
+    'offline_model': 'faster-whisper',
+    'deepgram_key': '',
+    'speechmatics_key': '',
+    'assemblyai_key': '',
+    'azure_key': '',
+    'azure_region': 'uksouth',
+    'groq_key': '',
+    'interfaze_key': '',
+    'openai_key': '',
+    'google_key': '',
+    'gateway_ip': '',
+}
+
+_unknown = [k for k in WIZARD_FIELDS if k not in DEFAULTS]
+if _unknown:
+    print(f'Setup wizard: these fields are not config keys and will be '
+          f'rejected by the app: {_unknown}', flush=True)
 
 # credentials.py is imported by caption_app.py, so it has to sit next to it in
 # the repo root regardless of where config.json ends up.
@@ -132,28 +158,30 @@ def api_test_audio():
 def api_save():
     data = request.get_json() or {}
 
-    # Start from what's on disk so hand-added keys the wizard doesn't know
-    # about survive a save.
+    # Start from what is on disk, so anything hand-added — including the
+    # underscore-prefixed keys used as comments — survives a save.
     config = read_raw_config()
-    config.update({
-        'room_device': data.get('room_device', ''),
-        'phone_device': data.get('phone_device', ''),
-        'speech_mode': data.get('speech_mode', 'online'),
-        'stt_provider': data.get('stt_provider', 'deepgram'),
-        'offline_model': data.get('offline_model', 'faster-whisper'),
-        'deepgram_key': data.get('deepgram_key', ''),
-        'speechmatics_key': data.get('speechmatics_key', ''),
-        'assemblyai_key': data.get('assemblyai_key', ''),
-        'azure_key': data.get('azure_key', ''),
-        'azure_region': data.get('azure_region', 'uksouth'),
-        'groq_key': data.get('groq_key', ''),
-        'interfaze_key': data.get('interfaze_key', ''),
-        'openai_key': data.get('openai_key', ''),
-        'google_key': data.get('google_key', ''),
-        'gateway_ip': data.get('gateway_ip', ''),
-    })
 
-    save_config(config)
+    for key, fallback in WIZARD_FIELDS.items():
+        value = data.get(key, fallback)
+        if value in ('', None):
+            # A cleared field REMOVES the key rather than writing "". Empty
+            # values are ignored by the loader anyway, so writing them only
+            # accumulated dead entries: choosing one provider used to leave
+            # seven empty key fields in the file for good.
+            config.pop(key, None)
+        else:
+            config[key] = value
+
+    path = save_config(config)
+    print(f'Setup wizard: saved {path}', flush=True)
+
+    leftover = unknown_keys(config)
+    if leftover:
+        # Not fatal — they may be deliberate. But the app reports them too, so
+        # say it here where whoever typed them is looking.
+        print(f'Setup wizard: config contains keys the app does not know: '
+              f'{leftover}', flush=True)
 
     # Also write credentials.py for backwards compatibility
     if config.get('deepgram_key'):
@@ -170,20 +198,29 @@ def api_save():
     except Exception:
         pass
 
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'config_path': path,
+                    'unknown_keys': leftover})
 
 
 @app.route('/api/status')
 def api_status():
     caption = get_service_status('caption')
     mute = get_service_status('gramps-mute')
+    raw = read_raw_config()
     config = load_config(verbose=False)
-    configured = bool(config.get('room_device') or config.get('deepgram_key')
+    provider_key = f"{config.get('stt_provider') or ''}_key"
+    configured = bool(config.get('room_device') or config.get(provider_key)
+                      or config.get('deepgram_key')
                       or config.get('speechmatics_key'))
     return jsonify({
         'caption': caption,
         'mute': mute,
         'configured': configured,
+        # Which file is actually in effect. There are four places it can live
+        # now, so "I edited the config and nothing changed" is a real way to
+        # lose an afternoon.
+        'config_path': config_write_path(),
+        'unknown_keys': unknown_keys(raw),
     })
 
 
