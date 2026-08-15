@@ -39,6 +39,11 @@ WIZARD_FIELDS = {
     'openai_key': '',
     'google_key': '',
     'gateway_ip': '',
+    # Booleans are written even when False — False is not "empty", and an
+    # explicit false is exactly how you turn off something that defaults on.
+    'speaker_colours': True,
+    'vad_gate': True,
+    'speechmatics_model': 'enhanced',
 }
 
 _unknown = [k for k in WIZARD_FIELDS if k not in DEFAULTS]

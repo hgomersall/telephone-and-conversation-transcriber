@@ -152,6 +152,14 @@
                         <input type="text" id="speechmatics-key" placeholder="Paste your key here" autocomplete="off" spellcheck="false">
                         <p class="help">Copy it as soon as you create it — the site won't show it to you again.</p>
                     </div>
+                    <div class="field-group">
+                        <label for="speechmatics-model">Accuracy</label>
+                        <select id="speechmatics-model">
+                            <option value="enhanced">Best accuracy (recommended)</option>
+                            <option value="standard">Faster, slightly less accurate</option>
+                        </select>
+                        <p class="help">Best accuracy is worth it here — a misheard word is harder to recover from than a slightly slower one.</p>
+                    </div>
                 </div>
 
                 <!-- AssemblyAI -->
@@ -294,6 +302,16 @@
 
             <details class="advanced-section">
                 <summary>Extra settings (you probably don't need these)</summary>
+                <div class="field-group">
+                    <label><input type="checkbox" id="speaker-colours" checked> Colour each person differently</label>
+                    <p class="help">When someone else starts talking, their words change colour and get a ▸ mark. Needs Deepgram or Speechmatics, and works best when people speak for a few seconds at a time.</p>
+                </div>
+
+                <div class="field-group">
+                    <label><input type="checkbox" id="vad-gate" checked> Only send audio when someone is speaking</label>
+                    <p class="help">Saves most of the cost of a paid speech service, because a quiet room costs nothing. Turn it off if captions ever seem to miss the start of a sentence.</p>
+                </div>
+
                 <div class="field-group">
                     <label for="gateway-ip">Your router's address</label>
                     <p class="help">The transcriber can automatically restart the WiFi if the internet drops. Leave blank to skip this, or enter your router's address (usually something like 192.168.1.1).</p>
@@ -547,6 +565,10 @@
                 openai_key: provider === 'openai' ? apiKey : '',
                 google_key: provider === 'google' ? apiKey : '',
                 gateway_ip: document.getElementById('gateway-ip').value.trim(),
+                speaker_colours: document.getElementById('speaker-colours').checked,
+                vad_gate: document.getElementById('vad-gate').checked,
+                speechmatics_model: provider === 'speechmatics'
+                    ? document.getElementById('speechmatics-model').value : '',
             };
 
             fetch('/api/save', {
@@ -634,6 +656,17 @@
             }
             if (config.azure_region) {
                 document.getElementById('azure-region').value = config.azure_region;
+            }
+            if (config.speechmatics_model) {
+                const smSel = document.getElementById('speechmatics-model');
+                if (smSel) smSel.value = config.speechmatics_model;
+            }
+            // Checkboxes default to on, so only an explicit false unticks them.
+            if (config.speaker_colours === false) {
+                document.getElementById('speaker-colours').checked = false;
+            }
+            if (config.vad_gate === false) {
+                document.getElementById('vad-gate').checked = false;
             }
 
             // Restore offline model selection
