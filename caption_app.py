@@ -86,7 +86,25 @@ LOG_RAW = '--log-raw' in _ARGV
 # Colour and mark caption text on speaker change. Off means no explicit
 # character format is applied, which is what lets the colour-scheme buttons
 # control the text colour again.
+#
+# Mutable: the touch toggle changes it at runtime. add_segment reads it per
+# call; the provider threads read it when building a connection, so a change
+# needs a restart to reach the service.
 SPEAKER_COLOURS = bool(CONFIG.get('speaker_colours', True))
+
+# Providers whose speaker labels we can actually use.
+DIARIZING_PROVIDERS = ('deepgram', 'speechmatics')
+
+
+def speaker_colours_available():
+    """Whether turning speaker colours on could do anything right now.
+
+    Offline engines return no speaker labels, and neither do five of the seven
+    cloud providers, so offering the toggle there would be a control that
+    silently does nothing.
+    """
+    return (CONFIG.get('speech_mode') == 'online'
+            and CONFIG.get('stt_provider') in DIARIZING_PROVIDERS)
 
 
 def log_transcript(text, prefix='>>>'):
@@ -2078,6 +2096,20 @@ def stop_transcription():
 
 
 
+def restart_transcription():
+    """Rebuild the session in the current mode.
+
+    For settings that live in the connection rather than in the display —
+    diarization is requested when the socket opens, so it cannot be turned on
+    or off without starting a new one.
+    """
+    print('Restarting transcription to apply a connection setting', flush=True)
+    emitter.status_changed.emit('switching')
+    stop_transcription()
+    time.sleep(0.5)
+    start_transcription(state.mode)
+
+
 def switch_mode(new_mode):
     """Switch modes with proper cleanup"""
     if new_mode != state.mode:
@@ -2253,6 +2285,12 @@ class CaptionView(QWidget):
         self.phone_icon.hide()
         top_bar.addWidget(self.phone_icon)
 
+        self.speaker_btn = QLabel(SPEAKER_MARKER.strip())
+        self.speaker_btn.setFixedSize(50, 50)
+        self.speaker_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.speaker_btn.mousePressEvent = self.toggle_speaker_colours
+        top_bar.addWidget(self.speaker_btn)
+
         self.mode_btn = QLabel('OFFLINE')
         self.mode_btn.setFixedSize(140, 50)
         self.mode_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2280,6 +2318,7 @@ class CaptionView(QWidget):
 
         self.update_size_buttons()
         self.update_color_buttons()
+        self.update_speaker_button()
         self.set_size('M')
         self.set_color(0)
         self._waiting_for_ready = False
@@ -2328,6 +2367,12 @@ class CaptionView(QWidget):
         self.update_size_buttons()
 
     def set_color(self, idx):
+        if SPEAKER_COLOURS and speaker_colours_available():
+            # A scheme that duplicates another's background does nothing at all
+            # once the palette owns the text colour.
+            bgs = [c[2].lower() for c in self.color_schemes]
+            if bgs.index(bgs[idx]) != idx:
+                return
         self.current_scheme = idx
         name, text_col, bg_col = self.color_schemes[idx]
         self.text.setStyleSheet(f'background: {bg_col}; color: {text_col}; border: none;')
@@ -2341,10 +2386,59 @@ class CaptionView(QWidget):
             else:
                 btn.setStyleSheet('background: #222; color: #888; border-radius: 25px; font-size: 24px;')
 
+    def toggle_speaker_colours(self, event):
+        global SPEAKER_COLOURS
+        if not speaker_colours_available():
+            return          # the button is shown inert; ignore the press
+        SPEAKER_COLOURS = not SPEAKER_COLOURS
+        print(f'Speaker colours {"on" if SPEAKER_COLOURS else "off"}', flush=True)
+        self.update_speaker_button()
+        self.update_color_buttons()
+        # Diarization is a connection parameter, so the session has to be
+        # rebuilt for the change to reach the service.
+        self.set_status('switching')
+        QApplication.processEvents()
+        restart_transcription()
+
+    def update_speaker_button(self):
+        if not speaker_colours_available():
+            # Nothing to colour: offline engines and most cloud providers
+            # return no speaker labels at all.
+            self.speaker_btn.setStyleSheet(
+                'background: #1a1a1a; color: #444; border-radius: 25px; '
+                'font-size: 24px; border: 2px solid #333;')
+        elif SPEAKER_COLOURS:
+            self.speaker_btn.setStyleSheet(
+                'background: #222; color: #ffb000; border-radius: 25px; '
+                'font-size: 24px; font-weight: bold; border: 3px solid #ffb000;')
+        else:
+            self.speaker_btn.setStyleSheet(
+                'background: #222; color: #888; border-radius: 25px; '
+                'font-size: 24px; border: 2px solid #444;')
+
     def update_color_buttons(self):
+        # With speaker colours on, the palette sets the text colour, so a
+        # scheme only still matters for its BACKGROUND — which decides light
+        # or dark palette. Y/B and G/B are black-backed like W/B, so they
+        # become pixel-identical to it and are shown inert rather than left
+        # looking like controls that do nothing.
+        dead = set()
+        if SPEAKER_COLOURS and speaker_colours_available():
+            first_bg = {}
+            for i, (name, _t, bg) in enumerate(self.color_schemes):
+                key = bg.lower()
+                if key in first_bg:
+                    dead.add(i)
+                else:
+                    first_bg[key] = i
+
         for i, btn in enumerate(self.color_buttons):
             name, text_col, bg_col = self.color_schemes[i]
-            if i == self.current_scheme:
+            if i in dead:
+                btn.setStyleSheet(
+                    f'background: {bg_col}; color: #555; border-radius: 25px; '
+                    f'font-size: 24px; border: 2px dashed #333;')
+            elif i == self.current_scheme:
                 btn.setStyleSheet(f'background: {bg_col}; color: {text_col}; border-radius: 25px; font-size: 24px; font-weight: bold; border: 3px solid #0af;')
             else:
                 btn.setStyleSheet(f'background: {bg_col}; color: {text_col}; border-radius: 25px; font-size: 24px; font-weight: bold; border: 2px solid #444;')
