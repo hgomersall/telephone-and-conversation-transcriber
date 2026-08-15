@@ -22,7 +22,11 @@ INSTALL_DIR="$HOME/gramps-transcriber"
 VENV_DIR="$HOME/gramps-env"
 VOSK_DIR="$HOME/vosk-uk"
 SYSTEMD_DIR="$HOME/.config/systemd/user"
-REPO_URL="https://github.com/andygmassey/telephone-and-conversation-transcriber.git"
+# Override both to install from a fork:
+#   curl -sSL <your-raw-install.sh-url> | \
+#     GRAMPS_REPO=https://github.com/you/telephone-and-conversation-transcriber.git \
+#     GRAMPS_BRANCH=your-branch bash
+REPO_URL="${GRAMPS_REPO:-https://github.com/andygmassey/telephone-and-conversation-transcriber.git}"
 BRANCH="${GRAMPS_BRANCH:-main}"
 VOSK_MODEL_URL="https://alphacephei.com/vosk/models/vosk-model-small-en-gb-0.15.zip"
 TOTAL_STEPS=8

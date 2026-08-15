@@ -26,6 +26,18 @@ Then open **http://gramps.local:8080** on your phone or computer. The setup page
 
 > **New to Raspberry Pi?** See the [step-by-step guide](docs/building-sd-image.md) for how to set up your Pi from scratch, including how to get WiFi working.
 
+### Installing from a fork
+
+Point the installer at your own repository and branch:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/YOU/telephone-and-conversation-transcriber/YOUR_BRANCH/install.sh | \
+  GRAMPS_REPO=https://github.com/YOU/telephone-and-conversation-transcriber.git \
+  GRAMPS_BRANCH=YOUR_BRANCH bash
+```
+
+The URL you fetch and `GRAMPS_REPO` are separate things and both matter: the first decides which `install.sh` runs, the second decides what it then clones. Point them at different places and you will install something other than what you are reading.
+
 ## What You'll Need
 
 ### The computer
