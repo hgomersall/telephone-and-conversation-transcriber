@@ -303,6 +303,11 @@
             <details class="advanced-section">
                 <summary>Extra settings (you probably don't need these)</summary>
                 <div class="field-group">
+                    <label><input type="checkbox" id="autostart" checked> Start automatically when the power comes on</label>
+                    <p class="help">Leave this on. Without it the transcriber has to be started by hand after a power cut, and nobody wants to discover that when they need it.</p>
+                </div>
+
+                <div class="field-group">
                     <label><input type="checkbox" id="speaker-colours" checked> Colour each person differently</label>
                     <p class="help">When someone else starts talking, their words change colour and get a ▸ mark. Needs Deepgram or Speechmatics, and works best when people speak for a few seconds at a time.</p>
                 </div>
@@ -339,6 +344,7 @@
                 </div>
             </div>
 
+            <p class="muted" id="autostart-line" style="display:none"></p>
             <p class="muted" id="config-path-line" style="display:none">Settings are saved in <code id="config-path"></code></p>
             <p class="muted" id="config-warning" style="display:none; color:#cc6600"></p>
 
@@ -565,6 +571,7 @@
                 openai_key: provider === 'openai' ? apiKey : '',
                 google_key: provider === 'google' ? apiKey : '',
                 gateway_ip: document.getElementById('gateway-ip').value.trim(),
+                autostart: document.getElementById('autostart').checked,
                 speaker_colours: document.getElementById('speaker-colours').checked,
                 vad_gate: document.getElementById('vad-gate').checked,
                 speechmatics_model: provider === 'speechmatics'
@@ -615,6 +622,14 @@
                     // Which file is actually in effect. It can live in four
                     // places now, so "I changed the settings and nothing
                     // happened" is worth pre-empting.
+                    const auto_ = document.getElementById('autostart-line');
+                    if (auto_) {
+                        auto_.textContent = data.autostart
+                            ? 'Will start automatically when the power comes on.'
+                            : 'Will NOT start automatically — it must be started by hand after a power cut.';
+                        auto_.style.color = data.autostart ? '' : '#cc6600';
+                        auto_.style.display = '';
+                    }
                     if (data.config_path) {
                         document.getElementById('config-path').textContent = data.config_path;
                         document.getElementById('config-path-line').style.display = '';
@@ -661,6 +676,12 @@
                 const smSel = document.getElementById('speechmatics-model');
                 if (smSel) smSel.value = config.speechmatics_model;
             }
+            // Autostart is systemd's state, not a config value, so it comes
+            // from the server rather than from config.json.
+            if ({{ autostart | tojson }} === false) {
+                document.getElementById('autostart').checked = false;
+            }
+
             // Checkboxes default to on, so only an explicit false unticks them.
             if (config.speaker_colours === false) {
                 document.getElementById('speaker-colours').checked = false;

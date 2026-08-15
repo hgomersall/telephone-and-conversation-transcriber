@@ -241,6 +241,11 @@ ok "Services installed"
 
 step 8 "Starting the setup wizard..."
 
+# User services only start at boot if the account has lingering enabled.
+# Without it a headless Pi comes back from a power cut with no setup wizard
+# and no transcriber, which looks exactly like a broken install.
+loginctl enable-linger "$USER" 2>/dev/null || warn "Couldn't enable start-on-boot for services (they'll still start when you log in)"
+
 systemctl --user enable --now gramps-setup 2>/dev/null || warn "Couldn't auto-start the wizard (you can start it manually)"
 
 # Give it a moment to start

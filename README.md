@@ -247,6 +247,10 @@ cp systemd/caption.service ~/.config/systemd/user/
 cp systemd/gramps-mute.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now caption gramps-mute
+
+# So they start at boot rather than only when someone logs in — a headless Pi
+# needs this or it comes back from a power cut with nothing running.
+loginctl enable-linger "$USER"
 ```
 
 ### 5. Install health monitor (recommended)

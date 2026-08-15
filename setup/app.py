@@ -46,6 +46,10 @@ WIZARD_FIELDS = {
     'speechmatics_model': 'enhanced',
 }
 
+# Not a config key: whether the service starts on power-up is systemd's state,
+# not the app's, so it is read from and written to systemd rather than stored
+# in config.json where the two could disagree.
+
 _unknown = [k for k in WIZARD_FIELDS if k not in DEFAULTS]
 if _unknown:
     print(f'Setup wizard: these fields are not config keys and will be '
@@ -125,6 +129,54 @@ def test_audio_device(hw_id, duration=3, sample_rate=16000):
         return -1
 
 
+def get_service_enabled(service_name):
+    """Is the service set to start on its own? (enabled / disabled / unknown)"""
+    try:
+        result = subprocess.run(
+            ['systemctl', '--user', 'is-enabled', service_name],
+            capture_output=True, text=True, timeout=5
+        )
+        return result.stdout.strip() or 'unknown'
+    except Exception:
+        return 'unknown'
+
+
+AUTOSTART_SERVICES = ('caption', 'gramps-mute')
+
+
+def set_autostart(enabled):
+    """Start the transcriber on power-up, or stop doing so.
+
+    Two separate things are required and both are easy to miss. `enable` marks
+    the units to start on their own — the wizard previously only ever
+    restarted them, so a configured device came back from a power cut with no
+    captions. And user services do not start at boot at all unless lingering is
+    on for the account, which matters on a headless Pi where nothing logs in.
+    """
+    problems = []
+    for service in AUTOSTART_SERVICES:
+        try:
+            subprocess.run(
+                ['systemctl', '--user',
+                 'enable' if enabled else 'disable', service],
+                capture_output=True, timeout=10,
+            )
+        except Exception as e:
+            problems.append(f'{service}: {e}')
+
+    try:
+        subprocess.run(
+            ['loginctl', 'enable-linger' if enabled else 'disable-linger',
+             os.environ.get('USER') or os.path.basename(os.path.expanduser('~'))],
+            capture_output=True, timeout=10,
+        )
+    except Exception as e:
+        # Not fatal: on a Pi that logs into a desktop the session starts user
+        # services anyway. It is headless setups that need this.
+        problems.append(f'lingering: {e}')
+    return problems
+
+
 def get_service_status(service_name):
     """Check if a systemd user service is running."""
     try:
@@ -142,7 +194,10 @@ def get_service_status(service_name):
 @app.route('/')
 def index():
     config = load_config(verbose=False)
-    return render_template('index.html', config=config)
+    return render_template(
+        'index.html', config=config,
+        autostart=(get_service_enabled('caption') == 'enabled'),
+    )
 
 
 @app.route('/api/devices')
@@ -181,6 +236,13 @@ def api_save():
     path = save_config(config)
     print(f'Setup wizard: saved {path}', flush=True)
 
+    # Default on: someone setting this up for a relative expects it to survive
+    # the plug being pulled.
+    autostart = bool(data.get('autostart', True))
+    problems = set_autostart(autostart)
+    print(f'Setup wizard: start on power-up {"enabled" if autostart else "disabled"}'
+          + (f' (issues: {problems})' if problems else ''), flush=True)
+
     leftover = unknown_keys(config)
     if leftover:
         # Not fatal — they may be deliberate. But the app reports them too, so
@@ -204,7 +266,9 @@ def api_save():
         pass
 
     return jsonify({'ok': True, 'config_path': path,
-                    'unknown_keys': leftover})
+                    'unknown_keys': leftover,
+                    'autostart': autostart,
+                    'autostart_problems': problems})
 
 
 @app.route('/api/status')
@@ -226,6 +290,7 @@ def api_status():
         # lose an afternoon.
         'config_path': config_write_path(),
         'unknown_keys': unknown_keys(raw),
+        'autostart': get_service_enabled('caption') == 'enabled',
     })
 
 
