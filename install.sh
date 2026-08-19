@@ -243,8 +243,11 @@ step 8 "Starting the setup wizard..."
 
 # ─── Desktop shortcuts ───────────────────────────────────────────────────────
 
-# Both the Desktop and the application menu. File managers on Raspberry Pi OS
-# will not run a .desktop file that is not executable, so chmod matters.
+# Both the Desktop and the application menu, mode 755 because some file
+# managers refuse to launch a .desktop file without the executable bit.
+# (An earlier version also ran `gio set metadata::trusted` — that is a GNOME
+# Files mechanism, is not supported by gio for this attribute, and is not read
+# by the file manager Raspberry Pi OS uses. It did nothing.)
 DESKTOP_DIR="$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")"
 mkdir -p "$DESKTOP_DIR" "$HOME/.local/share/applications"
 for launcher in "$INSTALL_DIR"/desktop/*.desktop; do
@@ -254,13 +257,6 @@ for launcher in "$INSTALL_DIR"/desktop/*.desktop; do
     install -m 755 "$launcher" "$HOME/.local/share/applications/" 2>/dev/null || \
         warn "Couldn't add a shortcut to the menu"
 done
-# Newer file managers additionally want the file marked trusted.
-if command -v gio &>/dev/null; then
-    for launcher in "$DESKTOP_DIR"/gramps-*.desktop; do
-        [ -f "$launcher" ] && gio set "$launcher" metadata::trusted true 2>/dev/null || true
-    done
-fi
-
 # User services only start at boot if the account has lingering enabled.
 # Without it a headless Pi comes back from a power cut with no setup wizard
 # and no transcriber, which looks exactly like a broken install.
