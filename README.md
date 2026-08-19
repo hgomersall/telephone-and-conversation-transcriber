@@ -19,7 +19,7 @@ In the meantime, this project is fully open source and works well. If you build 
 Got your Raspberry Pi set up with Raspberry Pi OS? Just run this one line:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/andygmassey/telephone-and-conversation-transcriber/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/hgomersall/telephone-and-conversation-transcriber/main/install.sh | bash
 ```
 
 Then open **http://gramps.local:8080** on your phone or computer. The setup page will walk you through the rest — picking your microphones and getting everything running. The whole thing takes about 5 minutes.

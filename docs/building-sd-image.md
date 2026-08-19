@@ -41,7 +41,7 @@ This takes a few minutes. When it's done, pop the SD card out.
 Open a terminal (there's an icon at the top of the screen that looks like a black rectangle) and paste this:
 
 ```
-curl -sSL https://raw.githubusercontent.com/andygmassey/telephone-and-conversation-transcriber/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/hgomersall/telephone-and-conversation-transcriber/main/install.sh | bash
 ```
 
 Press Enter and wait. It'll show you its progress as it goes — the whole thing takes about 5-10 minutes.
