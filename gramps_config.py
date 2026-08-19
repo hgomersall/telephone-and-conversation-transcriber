@@ -148,6 +148,13 @@ DEFAULTS = {
     'preroll_s': 0.5,             # audio held back and flushed when speech starts
     'keepalive_s': 4.0,           # KeepAlive interval; Deepgram drops at 10s of nothing
 
+    # How long to wait after speech stops before declaring the utterance over.
+    # It must outlast the provider's own finalisation lag: a final still in
+    # flight would otherwise arrive to find its provisional text already
+    # committed, append instead of replacing, and show the words twice.
+    # Waiting is free — the paragraph break is applied to the next text.
+    'utterance_end_delay_s': 1.5,
+
     # Seconds of unbroken press on the status indicator before the on-screen
     # exit is offered, which then needs a second tap to confirm. There is no
     # keyboard on the appliance, so some route out has to exist — but it must

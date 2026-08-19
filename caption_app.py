@@ -1195,6 +1195,8 @@ def deepgram_thread():
                 # pre-roll, which is the one place there is no margin.
                 last_speech = time.time()
                 was_speaking = False
+                utterance_end_delay = float(CONFIG.get('utterance_end_delay_s', 1.5))
+                utterance_end_due = 0.0
 
                 if gating:
                     print(f'Gate on: {gate.preroll_s:.2f}s pre-roll, '
@@ -1224,8 +1226,19 @@ def deepgram_thread():
                         # paragraphs on the gate meant needing a four second gap
                         # before the text broke at all.
                         if was_speaking and not detector.speaking:
-                            emit_utterance_end()
+                            # Do not emit yet. The provider's own final for the
+                            # last words is still in flight — Speechmatics lags
+                            # by max_delay — and an utterance-end that arrives
+                            # first commits the provisional text, so the final
+                            # then appends instead of replacing it and the words
+                            # appear twice. Waiting costs nothing: the break is
+                            # applied to the NEXT text, so it only has to arrive
+                            # before that.
+                            utterance_end_due = now + utterance_end_delay
                         was_speaking = detector.speaking
+                        if utterance_end_due and now >= utterance_end_due:
+                            utterance_end_due = 0.0
+                            emit_utterance_end()
 
                         # Opens on the raw state, so it reacts as fast as the
                         # indicator. Stays open for gate_hangover_s afterwards —
@@ -1573,6 +1586,8 @@ def speechmatics_thread():
                 gate_hangover = float(CONFIG.get('gate_hangover_s', 4.0))
                 last_speech = time.time()   # start open, as the Deepgram path does
                 was_speaking = False
+                utterance_end_delay = float(CONFIG.get('utterance_end_delay_s', 1.5))
+                utterance_end_due = 0.0
                 started = time.time()
                 print(f'Gate {"on" if gating else "off"}'
                       + (f': {gate.preroll_s:.2f}s pre-roll, {gate_hangover:.1f}s hangover'
@@ -1595,8 +1610,19 @@ def speechmatics_thread():
                         if detector.active:
                             last_speech = now
                         if was_speaking and not detector.speaking:
-                            emit_utterance_end()
+                            # Do not emit yet. The provider's own final for the
+                            # last words is still in flight — Speechmatics lags
+                            # by max_delay — and an utterance-end that arrives
+                            # first commits the provisional text, so the final
+                            # then appends instead of replacing it and the words
+                            # appear twice. Waiting costs nothing: the break is
+                            # applied to the NEXT text, so it only has to arrive
+                            # before that.
+                            utterance_end_due = now + utterance_end_delay
                         was_speaking = detector.speaking
+                        if utterance_end_due and now >= utterance_end_due:
+                            utterance_end_due = 0.0
+                            emit_utterance_end()
                         want_open = (not gating) or detector.active \
                             or (now - last_speech) < gate_hangover
 

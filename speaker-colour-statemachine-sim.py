@@ -282,6 +282,33 @@ def test_gate_close_breaks_the_paragraph():
           f'{len(s.lines())} lines: {[l for _, l in s.lines()]}')
 
 
+def test_utterance_end_must_not_precede_the_final():
+    """An end-of-utterance arriving before the provider's final duplicates text.
+
+    The signal commits the provisional region. If the final for those same
+    words is still in flight it then finds nothing to replace, appends instead,
+    and the sentence appears twice. This is why the signal is deferred past the
+    provider's finalisation lag rather than fired the moment speech stops.
+    """
+    early = Sim()
+    early.add_segment('hello there', False, 0)          # partial
+    early.add_segment('', True, None, speech_final=True)  # utterance end, too soon
+    early.add_segment('hello there', True, 0)           # the real final
+    early.add_segment('next bit', True, 0)
+    check('early utterance-end duplicates (the bug)',
+          early.doc.count('hello there') == 2, early.doc)
+
+    late = Sim()
+    late.add_segment('hello there', False, 0)
+    late.add_segment('hello there', True, 0)            # final arrives first
+    late.add_segment('', True, None, speech_final=True)  # then the utterance end
+    late.add_segment('next bit', True, 0)
+    check('deferred utterance-end does not duplicate',
+          late.doc.count('hello there') == 1, late.doc)
+    check('deferred utterance-end still breaks the line',
+          len(late.lines()) == 2, str(late.lines()))
+
+
 def test_add_text_commits_provisional():
     """add_text must clear _prov_start, independently of any reconnect.
 
