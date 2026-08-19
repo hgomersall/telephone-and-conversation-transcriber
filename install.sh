@@ -288,7 +288,11 @@ done
 # and no transcriber, which looks exactly like a broken install.
 loginctl enable-linger "$USER" 2>/dev/null || warn "Couldn't enable start-on-boot for services (they'll still start when you log in)"
 
-systemctl --user enable --now gramps-setup 2>/dev/null || warn "Couldn't auto-start the wizard (you can start it manually)"
+systemctl --user enable gramps-setup 2>/dev/null || warn "Couldn't set the wizard to start on boot"
+# restart, not start: `--now` leaves an already-running wizard on the old code,
+# and since templates are re-read per request but Python is not, that serves the
+# new page from the old app and fails to render at all.
+systemctl --user restart gramps-setup 2>/dev/null || warn "Couldn't start the wizard (you can start it manually)"
 
 # Give it a moment to start
 sleep 2

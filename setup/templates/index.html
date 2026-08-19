@@ -678,7 +678,10 @@
             }
             // Autostart is systemd's state, not a config value, so it comes
             // from the server rather than from config.json.
-            if ({{ autostart | tojson }} === false) {
+            // `default` so a server running older code than this page degrades
+            // rather than failing to render at all — the wizard is how you fix
+            // a broken install, so it must survive being out of step.
+            if ({{ autostart | default(true) | tojson }} === false) {
                 document.getElementById('autostart').checked = false;
             }
 
