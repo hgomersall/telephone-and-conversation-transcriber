@@ -2650,7 +2650,14 @@ class CaptionView(QWidget):
             # deleting it — those were real words.
             if is_final:
                 self._prov_start = None
-                self._last_speech_final = speech_final
+                # Only ever SET the flag here, never clear it. It means "the
+                # next text begins a new paragraph", and an empty segment has
+                # no standing to revoke that. Assigning speech_final directly
+                # meant every empty final that followed an end-of-utterance —
+                # ours or the provider's — cancelled the break, and the
+                # captions ran together into one paragraph again.
+                if speech_final:
+                    self._last_speech_final = True
             return
 
         c = self.text.textCursor()

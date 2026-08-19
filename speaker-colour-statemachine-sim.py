@@ -43,10 +43,13 @@ class Sim:
             now = self.last_text_time + 0.1
 
         if not text:
-            # Empty final: commit any interim already on screen, don't delete it.
+            # Empty final: commit any interim already on screen, don't delete
+            # it. Only ever SET last_speech_final — an empty segment may
+            # announce an utterance end but must not revoke one.
             if is_final:
                 self.prov = None
-                self.last_speech_final = speech_final
+                if speech_final:
+                    self.last_speech_final = True
             return
 
         if self.prov is None:
@@ -326,6 +329,22 @@ def test_first_turn_after_a_restart_is_marked():
     lines = s.lines()
     check('first turn after a restart carries a marker',
           lines[-1][1].startswith(MARK), str(lines))
+
+
+def test_empty_final_cannot_cancel_a_break():
+    """An end-of-utterance followed by an empty final must still break.
+
+    Providers send empty finals, carrying speech_final=False. Assigning that
+    directly cancelled a break already recorded, and the captions ran together
+    into a single paragraph.
+    """
+    s = Sim()
+    s.add_segment('first utterance', True, 0)
+    s.add_segment('', True, None, speech_final=True)    # end of utterance
+    s.add_segment('', True, None, speech_final=False)   # provider's empty final
+    s.add_segment('second utterance', True, 0)
+    check('empty final does not cancel the break', len(s.lines()) == 2,
+          f'{len(s.lines())} lines: {[l for _, l in s.lines()]}')
 
 
 def test_punctuation_attaches_to_the_word_before(): 
