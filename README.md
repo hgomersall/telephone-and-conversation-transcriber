@@ -159,7 +159,12 @@ The setup wizard lets you choose from 7 different cloud speech services. Here's 
 - **Colour circles** — switch colour scheme (white/black, black/white, yellow/black, green/black)
 - **ONLINE / OFFLINE** — toggle between cloud and offline engines
 - **Drag** — scroll through caption history
-- **Escape** — exit application (if you've plugged in a keyboard)
+- **Escape** — close the transcriber (keyboard only)
+- **Press and hold the status icon**, top right, for five seconds — a red `✕ CLOSE?` appears; tap it within five seconds to close. This is the way out with no keyboard attached.
+
+Closing is meant to be awkward. Whoever uses this cannot hear that it has stopped, so an easy exit would leave them looking at a blank screen with no idea why — a sustained hold on a small target in the corner is not something a resting hand does. Set `exit_hold_s` to change the hold, or to `0` to remove the touch exit entirely.
+
+Both routes stop the *service*, not just the window. The unit is `Restart=always`, so quitting the process alone would bring it back five seconds later. Start it again from the **Start Captions** desktop icon, or `systemctl --user start caption`.
 
 ### Phone Calls
 

@@ -44,6 +44,8 @@
     "preroll_s": 0.5,
     "keepalive_s": 4.0,
 
+    "exit_hold_s": 5.0,
+
     "offline_chunk_s": 3,
     "offline_max_chunk_s": 6
 }

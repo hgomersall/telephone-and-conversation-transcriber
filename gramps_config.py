@@ -141,6 +141,14 @@ DEFAULTS = {
     'preroll_s': 0.5,             # audio held back and flushed when speech starts
     'keepalive_s': 4.0,           # KeepAlive interval; Deepgram drops at 10s of nothing
 
+    # Seconds of unbroken press on the status indicator before the on-screen
+    # exit is offered, which then needs a second tap to confirm. There is no
+    # keyboard on the appliance, so some route out has to exist — but it must
+    # be hard to hit by accident, because the person using this cannot hear
+    # that it has stopped and would be left with a blank screen. Set 0 to
+    # remove the touch exit entirely.
+    'exit_hold_s': 5.0,
+
     # Offline chunking. Audio is cut at a silence rather than on a fixed tick so
     # words are never split, but unbroken speech has to be cut eventually or
     # nothing would ever be transcribed.
