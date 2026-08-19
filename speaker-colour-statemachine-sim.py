@@ -26,7 +26,7 @@ class Sim:
         self.prov = None           # _prov_start
         self.last_speaker = None
         self.cidx = 0
-        self.last_speech_final = False
+        self.pending_break = False
         self.mark_next = False
         self.last_text_time = 0
 
@@ -34,7 +34,7 @@ class Sim:
         self.prov = None
         self.last_speaker = None
         self.cidx = 0
-        self.last_speech_final = True
+        self.pending_break = True
         self.mark_next = True
 
     def add_segment(self, text, is_final, speaker, speech_final=False, now=None):
@@ -44,15 +44,16 @@ class Sim:
 
         if not text:
             # Empty final: commit any interim already on screen, don't delete
-            # it. Only ever SET last_speech_final — an empty segment may
+            # it. Only ever SET pending_break — an empty segment may
             # announce an utterance end but must not revoke one.
-            if is_final:
-                self.prov = None
-                if speech_final:
-                    self.last_speech_final = True
+            # Records the break but does not commit — see caption_app.
+            if is_final and speech_final:
+                self.pending_break = True
             return
 
         if self.prov is None:
+            if is_final and text and self.doc.rstrip().endswith(text):
+                return                      # already there; do not append twice
             self.prov = len(self.doc)
         else:
             self.doc = self.doc[:self.prov]
@@ -66,11 +67,12 @@ class Sim:
 
         at_start = (self.prov == 0)
         attaches = text[:1] in '.,!?;:)]}%…\'"’”'
+        used_break = False
         if not at_start and not attaches:
             if turn:
                 sep = '\n\n'
-            elif self.last_speech_final:
-                sep = '\n'
+            elif self.pending_break:
+                sep = '\n'; used_break = True
             elif self.last_text_time > 0 and (now - self.last_text_time) > 2:
                 sep = '\n'
             else:
@@ -86,7 +88,8 @@ class Sim:
         if is_final:
             self.prov = None
             self.cidx = cidx
-            self.last_speech_final = speech_final
+            if used_break: self.pending_break = False
+            if speech_final: self.pending_break = True
             self.mark_next = False
             if speaker is not None:
                 self.last_speaker = speaker
@@ -226,7 +229,9 @@ def test_empty_final_preserves_interim():
     s.add_segment('nearly all of it', False, 0)
     s.add_segment('', True, None, speech_final=True)
     check('empty final: interim text preserved', 'nearly all of it' in s.doc, s.doc)
-    check('empty final: region committed', s.prov is None)
+    # Deliberately NOT committed: the provider's own final for those words may
+    # still be in flight, and committing here is what duplicated them.
+    check('empty final: region left open for the final', s.prov is not None)
 
 
 def test_offline_interleave_does_not_wipe():
@@ -299,11 +304,13 @@ def test_utterance_end_must_not_precede_the_final():
     """
     early = Sim()
     early.add_segment('hello there', False, 0)          # partial
-    early.add_segment('', True, None, speech_final=True)  # utterance end, too soon
+    early.add_segment('', True, None, speech_final=True)  # utterance end, early
     early.add_segment('hello there', True, 0)           # the real final
     early.add_segment('next bit', True, 0)
-    check('early utterance-end duplicates (the bug)',
-          early.doc.count('hello there') == 2, early.doc)
+    check('early utterance-end no longer duplicates',
+          early.doc.count('hello there') == 1, early.doc)
+    check('early utterance-end still breaks the line',
+          len(early.lines()) == 2, str(early.lines()))
 
     late = Sim()
     late.add_segment('hello there', False, 0)
@@ -329,6 +336,40 @@ def test_first_turn_after_a_restart_is_marked():
     lines = s.lines()
     check('first turn after a restart carries a marker',
           lines[-1][1].startswith(MARK), str(lines))
+
+
+def test_no_duplication_across_message_orders():
+    """Exhaustive-ish hunt for the repeated-utterance bug.
+
+    Duplication happens when something commits the provisional region while the
+    provider's final for those same words is still in flight: the final then
+    has nothing to replace, appends, and the sentence appears twice. Rather
+    than fix one path at a time, this drives every ordering of the events that
+    can commit — empty finals, end-of-utterance, and a restart — around a
+    partial/final pair.
+    """
+    import itertools
+    WORDS = 'hello there'
+    intruders = {
+        'empty final (no speech_final)': lambda s: s.add_segment('', True, None, speech_final=False),
+        'empty final (speech_final)':    lambda s: s.add_segment('', True, None, speech_final=True),
+        'restart':                       lambda s: s.reset_speakers(),
+    }
+    bad = []
+    for name, intrude in intruders.items():
+        for pos in ('between partial and final', 'after final'):
+            s = Sim()
+            s.add_segment(WORDS, False, 0)              # partial
+            if pos == 'between partial and final':
+                intrude(s)
+            s.add_segment(WORDS, True, 0)               # the provider's final
+            if pos == 'after final':
+                intrude(s)
+            s.add_segment('next thing', True, 0)
+            count = s.doc.count(WORDS)
+            if count != 1:
+                bad.append(f'{name} / {pos}: {count}x -> {s.doc!r}')
+    check('no ordering duplicates the utterance', not bad, '\n        '.join(bad))
 
 
 def test_empty_final_cannot_cancel_a_break():

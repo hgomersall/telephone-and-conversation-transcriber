@@ -2457,7 +2457,12 @@ class CaptionView(QWidget):
         self._prov_start = None      # doc position where uncommitted (interim) text begins
         self._last_speaker = None
         self._colour_idx = 0
-        self._last_speech_final = False  # did the last commit end an utterance?
+        # One-shot: "the next committed text starts a new paragraph". Set by anything
+        # announcing an end of utterance, cleared only once actually used as a
+        # separator. Assigning it on every commit was the recurring bug — a
+        # final carrying speech_final=False silently revoked a break another
+        # message had just recorded.
+        self._pending_break = False
         self._mark_next = False
 
     def toggle_mode(self, event):
@@ -2620,7 +2625,7 @@ class CaptionView(QWidget):
         self._prov_start = None
         self._last_speaker = None
         self._colour_idx = 0
-        self._last_speech_final = True  # next segment starts a fresh paragraph
+        self._pending_break = True  # next segment starts a fresh paragraph
         # Mark whoever speaks next. After a restart the labels start again from
         # scratch, so we cannot tell whether it is the same person — and to the
         # reader it is a new turn either way. Without this the first turn back
@@ -2648,20 +2653,31 @@ class CaptionView(QWidget):
             # Deepgram sends empty finals for segments containing no speech.
             # Commit whatever interim text is already on screen rather than
             # deleting it — those were real words.
-            if is_final:
-                self._prov_start = None
-                # Only ever SET the flag here, never clear it. It means "the
-                # next text begins a new paragraph", and an empty segment has
-                # no standing to revoke that. Assigning speech_final directly
-                # meant every empty final that followed an end-of-utterance —
-                # ours or the provider's — cancelled the break, and the
-                # captions ran together into one paragraph again.
-                if speech_final:
-                    self._last_speech_final = True
+            # Only a genuine end-of-utterance commits. An empty final on its
+            # own means "that segment had no speech", and committing on it
+            # closed the provisional region while the real final for those same
+            # words was still in flight — which then had nothing to replace,
+            # appended instead, and showed the sentence twice.
+            #
+            # The flag is only ever SET, never cleared: it means "the next text
+            # begins a new paragraph", and an empty segment has no standing to
+            # revoke that.
+            # Record the break, but do NOT commit. Committing closes the
+            # provisional region while the final for those same words may still
+            # be in flight; it then has nothing to replace, appends, and the
+            # sentence appears twice. The final commits the region itself.
+            if is_final and speech_final:
+                self._pending_break = True
             return
 
         c = self.text.textCursor()
         if self._prov_start is None:
+            # Nothing provisional to replace, so this will append. If the
+            # document already ends with exactly this text, something else
+            # committed it first — a restart, or a late final from a session
+            # that has gone — and appending would show it twice.
+            if is_final and text and self.text.toPlainText().rstrip().endswith(text):
+                return
             self._trim_if_needed()
             c.movePosition(QTextCursor.MoveOperation.End)
             self._prov_start = c.position()
@@ -2683,11 +2699,13 @@ class CaptionView(QWidget):
         now = time.time()
         at_start = (self._prov_start == 0)
         attaches = text[:1] in ATTACHING_PUNCTUATION
+        used_break = False
         if not at_start and not attaches:
             if turn_change:
                 sep = '\n\n'      # speaker change — the strongest break
-            elif self._last_speech_final:
+            elif self._pending_break:
                 sep = '\n'        # end of an utterance
+                used_break = True
             elif self._last_text_time > 0 and (now - self._last_text_time) > 2:
                 sep = '\n'        # long gap and no speech_final arrived
             else:
@@ -2708,7 +2726,12 @@ class CaptionView(QWidget):
         if is_final:
             self._prov_start = None
             self._colour_idx = colour_idx
-            self._last_speech_final = speech_final
+            # Cleared only if this text actually rendered the break, so a
+            # final cannot revoke one it did not consume.
+            if used_break:
+                self._pending_break = False
+            if speech_final:
+                self._pending_break = True
             self._mark_next = False
             if speaker is not None:
                 self._last_speaker = speaker
