@@ -2259,6 +2259,12 @@ class ClockView(QWidget):
         status_row = QHBoxLayout()
         status_row.addStretch()
         self.status_label = QLabel('')
+        # A size of its own, like every other control. Without one the label
+        # shrinks to its contents — and status_display returns '' for an
+        # unknown state, which makes it zero pixels wide with nothing to press.
+        # It also has to stay a steady target for a five second hold.
+        self.status_label.setMinimumSize(90, 50)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet('background: transparent;')
         status_row.addWidget(self.status_label)
         self._exit = ExitGesture(self.status_label, self._render_status)
@@ -2368,6 +2374,10 @@ class CaptionView(QWidget):
         top_bar.addWidget(self.mode_btn)
 
         self.status_label = QLabel('')
+        # See ClockView: sized so there is something to press even when the
+        # status text is empty.
+        self.status_label.setMinimumSize(90, 50)
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         top_bar.addWidget(self.status_label)
         self._exit = ExitGesture(self.status_label, self._render_status)
 
