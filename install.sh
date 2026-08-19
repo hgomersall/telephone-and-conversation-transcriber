@@ -122,9 +122,22 @@ ok "All system packages installed"
 
 step 3 "Downloading the transcriber..."
 
-if [ -d "$INSTALL_DIR" ]; then
-    warn "Already downloaded — updating to latest version"
-    git -C "$INSTALL_DIR" pull --quiet || warn "Couldn't update. Using existing version."
+if [ -d "$INSTALL_DIR/.git" ]; then
+    warn "Already installed — updating"
+    # Repoint first. An existing install may have been cloned from somewhere
+    # else — upstream, or an older fork — and a bare `git pull` would quietly
+    # fetch from there, report success, and change nothing.
+    git -C "$INSTALL_DIR" remote set-url origin "$REPO_URL" 2>/dev/null \
+        || warn "Couldn't update the repository address"
+    git -C "$INSTALL_DIR" fetch --quiet origin "$BRANCH" \
+        || fail "Couldn't reach $REPO_URL. Are you connected to the internet?"
+    git -C "$INSTALL_DIR" checkout --quiet "$BRANCH" 2>/dev/null \
+        || git -C "$INSTALL_DIR" checkout --quiet -b "$BRANCH" "origin/$BRANCH" 2>/dev/null \
+        || warn "Couldn't switch to branch $BRANCH"
+    git -C "$INSTALL_DIR" merge --quiet --ff-only "origin/$BRANCH" \
+        || warn "Couldn't update cleanly — local changes? Keeping what is there."
+elif [ -d "$INSTALL_DIR" ]; then
+    fail "$INSTALL_DIR exists but is not a git checkout. Move it aside and run this again."
 else
     git clone --quiet --branch "$BRANCH" -- "$REPO_URL" "$INSTALL_DIR" || fail "Couldn't download the transcriber. Check your internet connection."
 fi
@@ -156,7 +169,7 @@ step 5 "Installing Python packages..."
 REQUIREMENTS="$INSTALL_DIR/requirements.txt"
 
 if [ ! -f "$REQUIREMENTS" ]; then
-    fail "requirements.txt not found. The download may be incomplete — try running the installer again."
+    fail "requirements.txt not found in $INSTALL_DIR. That file arrived with this version, so the checkout is probably still on an older one — check that $BRANCH exists in $REPO_URL."
 fi
 
 # uv resolves and installs far faster than pip, which is worth real minutes on

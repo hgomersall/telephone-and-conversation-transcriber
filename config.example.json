@@ -21,7 +21,7 @@
     "speechmatics_url": "wss://eu2.rt.speechmatics.com/v2",
     "speechmatics_language": "en",
     "speechmatics_model": "enhanced",
-    "speechmatics_max_delay": 1.0,
+    "speechmatics_max_delay": 2.5,
     "speechmatics_prefer_current_speaker": true,
     "speechmatics_end_of_utterance_s": 0.8,
 
@@ -44,7 +44,7 @@
     "preroll_s": 0.5,
     "keepalive_s": 4.0,
 
-    "utterance_end_delay_s": 1.5,
+    "utterance_end_delay_s": 3.0,
     "exit_hold_s": 5.0,
 
     "offline_chunk_s": 3,

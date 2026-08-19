@@ -67,7 +67,7 @@ DEFAULTS = {
     # from surrounding context, so less time means less context — odd
     # mid-sentence full stops are the usual symptom. Raise it towards 2-4 if
     # the punctuation matters more than the wait.
-    'speechmatics_max_delay': 1.0,
+    'speechmatics_max_delay': 2.5,
     # Diarization stability controls, which Deepgram does not offer. Deepgram's
     # labels proved unusable here once audio was gated, so these are worth
     # having: prefer_current_speaker reduces switching between similar voices.
@@ -158,8 +158,10 @@ DEFAULTS = {
     # It must outlast the provider's own finalisation lag: a final still in
     # flight would otherwise arrive to find its provisional text already
     # committed, append instead of replacing, and show the words twice.
-    # Waiting is free — the paragraph break is applied to the next text.
-    'utterance_end_delay_s': 1.5,
+    # Waiting is free — the paragraph break is applied to the next text. Keep
+    # it above the provider's own lag (speechmatics_max_delay) so the two stay
+    # in their intended order rather than relying on the duplicate guard.
+    'utterance_end_delay_s': 3.0,
 
     # Seconds of unbroken press on the status indicator before the on-screen
     # exit is offered, which then needs a second tap to confirm. There is no
