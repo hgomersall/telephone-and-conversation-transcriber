@@ -168,6 +168,11 @@ DEFAULTS = {
     # once, and a new one opened too soon is refused with quota_exceeded.
     'restart_settle_s': 1.0,
 
+    # Hide the mouse pointer. The device is a touchscreen; an arrow sitting
+    # over the captions is just clutter on a screen meant for reading. Set
+    # false when debugging with a mouse.
+    'hide_cursor': True,
+
     # Seconds of unbroken press on the status indicator before the on-screen
     # exit is offered, which then needs a second tap to confirm. There is no
     # keyboard on the appliance, so some route out has to exist — but it must

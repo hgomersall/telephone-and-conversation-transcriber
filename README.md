@@ -363,6 +363,19 @@ Output goes to the systemd journal rather than a file. `journalctl --user -u cap
 
 Nothing is sent off the device except audio to whichever speech service you configured. The health monitor's alerts contain fixed status strings, never transcript text.
 
+### On-screen icons
+
+The status area and mode button use emoji — a microphone, a phone, a globe. Raspberry Pi OS does not ship an emoji font by default, so on a fresh install they render as nothing at all. `install.sh` now installs `fonts-noto-color-emoji`; if you installed before that, this is the whole fix:
+
+```bash
+sudo apt install -y fonts-noto-color-emoji
+systemctl --user restart caption
+```
+
+The speech indicator (`●` / `○`) and the speaker marker (`▸`) are ordinary geometric characters present in the default fonts, so those keep working either way — as does the `ONLINE` / `OFFLINE` text on the mode button.
+
+The mouse pointer is hidden, since the device is a touchscreen. Set `hide_cursor: false` to get it back when working with a mouse.
+
 ### Speech detection
 
 Silero VAD decides what counts as speech, replacing a fixed amplitude threshold. This matters because an amplitude threshold fails in both directions as the microphone gain changes — too high and room noise is transcribed as speech, too low and speech is discarded with no error. VAD is gain-invariant.

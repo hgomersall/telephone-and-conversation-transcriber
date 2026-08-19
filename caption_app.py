@@ -3135,6 +3135,12 @@ def main():
         a for a in sys.argv[1:] if a not in ('--log', '--log-interims', '--log-raw')
     ])
 
+    if CONFIG.get('hide_cursor', True):
+        # A touchscreen has no pointer to speak of, and an arrow parked over
+        # the captions is just something else on a screen meant for reading.
+        # Set false to get it back for debugging with a mouse.
+        app.setOverrideCursor(Qt.CursorShape.BlankCursor)
+
     try:
         import systemd.daemon
         systemd.daemon.notify('READY=1')
