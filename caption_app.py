@@ -62,6 +62,10 @@ PHONE_SILENCE_TIMEOUT = 10
 SPEAKER_PALETTE_DARK = ['#ffffff', '#ffb000', '#56b4e9']
 SPEAKER_PALETTE_LIGHT = ['#1a1a1a', '#8a4b00', '#00457a']
 SPEAKER_MARKER = '▸ '
+# Punctuation that belongs to the word before it. Speechmatics emits these as
+# separate results, so a segment can be just "." — and joining that with the
+# usual space gives "hello ." instead of "hello.".
+ATTACHING_PUNCTUATION = '.,!?;:)]}%…\'"’”'
 MODE_FILE = '/tmp/gramps_mode'
 
 _ARGV = sys.argv[1:]
@@ -2454,6 +2458,7 @@ class CaptionView(QWidget):
         self._last_speaker = None
         self._colour_idx = 0
         self._last_speech_final = False  # did the last commit end an utterance?
+        self._mark_next = False
 
     def toggle_mode(self, event):
         new_mode = 'online' if self.current_mode == 'offline' else 'offline'
@@ -2616,6 +2621,12 @@ class CaptionView(QWidget):
         self._last_speaker = None
         self._colour_idx = 0
         self._last_speech_final = True  # next segment starts a fresh paragraph
+        # Mark whoever speaks next. After a restart the labels start again from
+        # scratch, so we cannot tell whether it is the same person — and to the
+        # reader it is a new turn either way. Without this the first turn back
+        # arrives with no marker at all, which reads as the feature having
+        # stopped working.
+        self._mark_next = True
 
     def add_segment(self, seg):
         """Streaming path: interim results overwrite, finals commit.
@@ -2664,7 +2675,8 @@ class CaptionView(QWidget):
 
         now = time.time()
         at_start = (self._prov_start == 0)
-        if not at_start:
+        attaches = text[:1] in ATTACHING_PUNCTUATION
+        if not at_start and not attaches:
             if turn_change:
                 sep = '\n\n'      # speaker change — the strongest break
             elif self._last_speech_final:
@@ -2678,7 +2690,7 @@ class CaptionView(QWidget):
         if SPEAKER_COLOURS:
             fmt = QTextCharFormat()
             fmt.setForeground(QColor(palette[colour_idx]))
-            marker = SPEAKER_MARKER if (turn_change or at_start) else ''
+            marker = SPEAKER_MARKER if (turn_change or at_start or self._mark_next) else ''
             c.insertText(marker + text, fmt)
         else:
             # No explicit character format. An explicit one overrides the
@@ -2690,6 +2702,7 @@ class CaptionView(QWidget):
             self._prov_start = None
             self._colour_idx = colour_idx
             self._last_speech_final = speech_final
+            self._mark_next = False
             if speaker is not None:
                 self._last_speaker = speaker
 

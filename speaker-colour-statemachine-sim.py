@@ -27,6 +27,7 @@ class Sim:
         self.last_speaker = None
         self.cidx = 0
         self.last_speech_final = False
+        self.mark_next = False
         self.last_text_time = 0
 
     def reset_speakers(self):
@@ -34,6 +35,7 @@ class Sim:
         self.last_speaker = None
         self.cidx = 0
         self.last_speech_final = True
+        self.mark_next = True
 
     def add_segment(self, text, is_final, speaker, speech_final=False, now=None):
         text = (text or '').strip()
@@ -60,7 +62,8 @@ class Sim:
                 turn = True
 
         at_start = (self.prov == 0)
-        if not at_start:
+        attaches = text[:1] in '.,!?;:)]}%…\'"’”'
+        if not at_start and not attaches:
             if turn:
                 sep = '\n\n'
             elif self.last_speech_final:
@@ -72,7 +75,7 @@ class Sim:
             self.doc += sep
             self.fmt += ['-'] * len(sep)
 
-        marker = MARK if (turn or at_start) else ''
+        marker = MARK if (turn or at_start or self.mark_next) else ''
         body = marker + text
         self.doc += body
         self.fmt += [PAL[cidx]] * len(body)
@@ -81,6 +84,7 @@ class Sim:
             self.prov = None
             self.cidx = cidx
             self.last_speech_final = speech_final
+            self.mark_next = False
             if speaker is not None:
                 self.last_speaker = speaker
         self.last_text_time = now
@@ -307,6 +311,43 @@ def test_utterance_end_must_not_precede_the_final():
           late.doc.count('hello there') == 1, late.doc)
     check('deferred utterance-end still breaks the line',
           len(late.lines()) == 2, str(late.lines()))
+
+
+def test_first_turn_after_a_restart_is_marked():
+    """A restart clears the speaker labels, so nothing looks like a change.
+
+    Without an explicit mark the first turn back carries no marker and no new
+    colour, which reads as the feature having stopped working.
+    """
+    s = Sim()
+    s.add_segment('before the restart', True, 0, speech_final=True)
+    s.reset_speakers()
+    s.add_segment('after the restart', True, 0, speech_final=True)
+    lines = s.lines()
+    check('first turn after a restart carries a marker',
+          lines[-1][1].startswith(MARK), str(lines))
+
+
+def test_punctuation_attaches_to_the_word_before(): 
+    """Speechmatics emits punctuation as its own result.
+
+    A segment can be just "." — joined with the usual space that reads as
+    "hello ." rather than "hello."
+    """
+    s = Sim()
+    s.add_segment('hello there', True, 0)
+    s.add_segment('.', True, 0)
+    check('no space before a full stop', 'hello there.' in s.doc, s.doc)
+
+    s = Sim()
+    for part in ['well', ',', 'quite', '?']:
+        s.add_segment(part, True, 0)
+    check('commas and question marks too', 'well, quite?' in s.doc, s.doc)
+
+    s = Sim()
+    s.add_segment('one', True, 0)
+    s.add_segment('two', True, 0)
+    check('ordinary words still separate', 'one two' in s.doc, s.doc)
 
 
 def test_add_text_commits_provisional():
