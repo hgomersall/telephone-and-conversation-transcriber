@@ -1194,6 +1194,7 @@ def deepgram_thread():
                 # the very first utterance of a session resting entirely on the
                 # pre-roll, which is the one place there is no margin.
                 last_speech = time.time()
+                was_speaking = False
 
                 if gating:
                     print(f'Gate on: {gate.preroll_s:.2f}s pre-roll, '
@@ -1217,6 +1218,14 @@ def deepgram_thread():
                         now = time.time()
                         if detector.active:
                             last_speech = now
+                        # End of an utterance is the detector going quiet — about
+                        # a second — not the gate closing, which waits
+                        # gate_hangover_s to keep the stream continuous. Hanging
+                        # paragraphs on the gate meant needing a four second gap
+                        # before the text broke at all.
+                        if was_speaking and not detector.speaking:
+                            emit_utterance_end()
+                        was_speaking = detector.speaking
 
                         # Opens on the raw state, so it reacts as fast as the
                         # indicator. Stays open for gate_hangover_s afterwards —
@@ -1238,8 +1247,6 @@ def deepgram_thread():
                                 # point.
                                 print(f'GATE {time.time():.3f} '
                                       f'{"open" if gate.open else "closed"}', flush=True)
-                            if not gate.open:
-                                emit_utterance_end()
                         if not gate.open:
                             if now - last_keepalive >= keepalive_every:
                                 # Text frame. Sent as binary it would be treated
@@ -1565,6 +1572,7 @@ def speechmatics_thread():
                 gate = AudioGate(sample_rate, float(CONFIG.get('preroll_s', 0.5)))
                 gate_hangover = float(CONFIG.get('gate_hangover_s', 4.0))
                 last_speech = time.time()   # start open, as the Deepgram path does
+                was_speaking = False
                 started = time.time()
                 print(f'Gate {"on" if gating else "off"}'
                       + (f': {gate.preroll_s:.2f}s pre-roll, {gate_hangover:.1f}s hangover'
@@ -1586,6 +1594,9 @@ def speechmatics_thread():
                         now = time.time()
                         if detector.active:
                             last_speech = now
+                        if was_speaking and not detector.speaking:
+                            emit_utterance_end()
+                        was_speaking = detector.speaking
                         want_open = (not gating) or detector.active \
                             or (now - last_speech) < gate_hangover
 
@@ -1597,8 +1608,6 @@ def speechmatics_thread():
                             if CONFIG.get('log_vad'):
                                 print(f'GATE {now:.3f} '
                                       f'{"open" if gate.open else "closed"}', flush=True)
-                            if not gate.open:
-                                emit_utterance_end()
                     except Exception as e:
                         print(f'Speechmatics send error: {e}', flush=True)
                         break
