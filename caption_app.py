@@ -1529,13 +1529,15 @@ def speechmatics_thread():
                           f"{data.get('reason', '')}", flush=True)
                     if kind == 'Error':
                         if data.get('type') == 'quota_exceeded':
-                            # The previous session has not finished closing.
-                            # Reconnecting straight away is guaranteed to fail
-                            # again, so wait for it to drain rather than
-                            # burning restarts against a wall.
-                            print('Speechmatics: waiting for the previous '
-                                  'session to close', flush=True)
-                            time.sleep(10)
+                            # The slot is still held by the session we are
+                            # replacing. Do NOT sleep here: this runs on the
+                            # reader thread, so it would delay this thread
+                            # finishing — and it is precisely that finishing
+                            # which frees the slot. Ending promptly is the
+                            # fastest way out.
+                            print('Speechmatics: session limit reached; the '
+                                  'previous session is still closing',
+                                  flush=True)
                         ws_error.set()
                         emitter.status_changed.emit('error')
                     return
@@ -2212,17 +2214,38 @@ def stop_transcription():
 
 
 def restart_transcription():
-    """Rebuild the session in the current mode.
+    """Rebuild the session in the current mode, once the old one has gone.
 
     For settings that live in the connection rather than in the display —
     diarization is requested when the socket opens, so it cannot be turned on
     or off without starting a new one.
+
+    Waits for the previous thread to finish before starting the next. Starting
+    on a fixed delay raced the teardown: Speechmatics allows two concurrent
+    sessions, so a new one opened while the old was still closing was refused
+    with quota_exceeded, and the restart failed. It is also called from the
+    touch handler, so it must not block the UI while it waits.
     """
     print('Restarting transcription to apply a connection setting', flush=True)
     emitter.status_changed.emit('switching')
     stop_transcription()
-    time.sleep(0.5)
-    start_transcription(state.mode)
+
+    settle = float(CONFIG.get('restart_settle_s', 1.0))
+    deadline = time.time() + 15.0   # generous: a refused session must drain
+
+    def when_clear():
+        if state.thread_alive and time.time() < deadline:
+            QTimer.singleShot(200, when_clear)   # still shutting down
+            return
+        if state.thread_alive:
+            print('Previous session did not stop in time; starting anyway',
+                  flush=True)
+        # A moment more even once our thread has gone: the server releases the
+        # session slot on its own schedule, not ours.
+        QTimer.singleShot(int(settle * 1000),
+                          lambda: start_transcription(state.mode))
+
+    when_clear()
 
 
 def switch_mode(new_mode):

@@ -45,6 +45,7 @@
     "keepalive_s": 4.0,
 
     "utterance_end_delay_s": 3.0,
+    "restart_settle_s": 1.0,
     "exit_hold_s": 5.0,
 
     "offline_chunk_s": 3,

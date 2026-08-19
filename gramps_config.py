@@ -163,6 +163,11 @@ DEFAULTS = {
     # in their intended order rather than relying on the duplicate guard.
     'utterance_end_delay_s': 3.0,
 
+    # Pause between the old session ending and the next beginning. Providers
+    # release a session slot on their own schedule — Speechmatics allows two at
+    # once, and a new one opened too soon is refused with quota_exceeded.
+    'restart_settle_s': 1.0,
+
     # Seconds of unbroken press on the status indicator before the on-screen
     # exit is offered, which then needs a second tap to confirm. There is no
     # keyboard on the appliance, so some route out has to exist — but it must
