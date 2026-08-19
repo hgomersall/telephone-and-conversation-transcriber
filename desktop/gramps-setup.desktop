@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Transcriber Settings
+Comment=Choose microphones and speech service
+# Makes sure the wizard is up before opening it, otherwise a reboot with the
+# service stopped gives a browser error rather than a settings page.
+Exec=sh -c 'systemctl --user start gramps-setup; sleep 1; xdg-open http://localhost:8080'
+Icon=preferences-desktop
+Terminal=false
+Categories=Settings;Utility;
+StartupNotify=true

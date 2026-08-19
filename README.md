@@ -453,6 +453,7 @@ GATE billed 41s of 300s (13.7%)
 | `scripts/` | System watchdog and health monitor scripts |
 | `scripts/caption-monitor.sh` | External health monitor — checks service health every 5 min, sends alerts |
 | `systemd/` | Service and timer files for auto-start and monitoring |
+| `desktop/` | Desktop and menu shortcuts (start captions, open settings) |
 | `docs/` | Additional guides (SD card image, etc.) |
 
 ## Troubleshooting

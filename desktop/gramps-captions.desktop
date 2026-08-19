@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Start Captions
+Comment=Start the transcriber (or restart it if it is already running)
+# Drives the service rather than launching caption_app.py directly. A second
+# copy would fight the first for the microphone — the app runs
+# `pkill -9 -f arecord` on start-up, so the two would take turns killing each
+# other's audio. `restart` works whether or not it is already running.
+Exec=systemctl --user restart caption
+Icon=audio-input-microphone
+Terminal=false
+Categories=AudioVideo;Utility;
+StartupNotify=false
