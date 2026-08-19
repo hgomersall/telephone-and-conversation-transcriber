@@ -537,6 +537,72 @@ class AudioGate:
         return self.sent_bytes / float(self.bytes_per_sec)
 
 
+def request_exit():
+    """Close the transcriber for real.
+
+    Stopping the service is the only genuine exit: the unit is Restart=always,
+    so quitting the process alone brings it back five seconds later. If it was
+    not started as a service nothing arrives to stop us, hence the fallback.
+    """
+    print('Exit requested', flush=True)
+    try:
+        subprocess.Popen(['systemctl', '--user', 'stop', 'caption'],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+    QTimer.singleShot(1500, QApplication.quit)
+
+
+class ExitGesture:
+    """Press and hold a widget, then tap again, to close the transcriber.
+
+    Deliberately awkward. There is no keyboard on the appliance so a way out
+    has to exist, but an easy one would be worse than none — whoever uses this
+    cannot hear that it has stopped, and would be left looking at a blank
+    screen with no idea why. A sustained hold on a small target in the corner
+    is not something a resting hand does.
+
+    Attached to both the caption and clock views, because either may be the one
+    on screen when someone wants out.
+    """
+
+    def __init__(self, label, restore):
+        self.label = label
+        self.restore = restore          # repaint the label's normal contents
+        self.armed = False
+        self._hold = QTimer(); self._hold.setSingleShot(True)
+        self._hold.timeout.connect(self._arm)
+        self._lapse = QTimer(); self._lapse.setSingleShot(True)
+        self._lapse.timeout.connect(self.disarm)
+        label.mousePressEvent = self._pressed
+        label.mouseReleaseEvent = self._released
+
+    def _pressed(self, event):
+        if self.armed:
+            self.armed = False
+            self._lapse.stop()
+            request_exit()
+            return
+        hold = float(CONFIG.get('exit_hold_s', 5.0))
+        if hold > 0:
+            self._hold.start(int(hold * 1000))
+
+    def _released(self, event):
+        self._hold.stop()
+
+    def _arm(self):
+        self.armed = True
+        self.label.setText('✕ CLOSE?')
+        self.label.setStyleSheet(
+            'color: #ffffff; background: #aa0000; padding: 8px 15px; '
+            'border-radius: 10px; font-size: 18px; font-weight: bold;')
+        self._lapse.start(5000)
+
+    def disarm(self):
+        self.armed = False
+        self.restore()
+
+
 def emit_utterance_end():
     """Signal end-of-utterance from our own VAD rather than the provider's.
 
@@ -2193,24 +2259,9 @@ class ClockView(QWidget):
         status_row = QHBoxLayout()
         status_row.addStretch()
         self.status_label = QLabel('')
-        # Exit gesture: press and hold the status indicator for exit_hold_s,
-        # then tap the confirmation. Deliberately awkward on both counts. There
-        # is no keyboard on the appliance so a way out has to exist, but an
-        # easy one would be worse than none — the person using this cannot hear
-        # that it has stopped, and would be left looking at a blank screen with
-        # no idea why. A sustained hold on a small target in the corner is not
-        # something a resting hand does.
-        self._exit_armed = False
-        self._exit_timer = QTimer()
-        self._exit_timer.setSingleShot(True)
-        self._exit_timer.timeout.connect(self._arm_exit)
-        self._disarm_timer = QTimer()
-        self._disarm_timer.setSingleShot(True)
-        self._disarm_timer.timeout.connect(self._disarm_exit)
-        self.status_label.mousePressEvent = self._status_pressed
-        self.status_label.mouseReleaseEvent = self._status_released
         self.status_label.setStyleSheet('background: transparent;')
         status_row.addWidget(self.status_label)
+        self._exit = ExitGesture(self.status_label, self._render_status)
         layout.addLayout(status_row)
 
         layout.addStretch()
@@ -2236,47 +2287,8 @@ class ClockView(QWidget):
         self._speaking = speaking
         self._render_status()
 
-    def _status_pressed(self, event):
-        if self._exit_armed:
-            self.request_exit()
-            return
-        hold = float(CONFIG.get('exit_hold_s', 5.0))
-        if hold <= 0:
-            return                        # touch exit disabled
-        self._exit_timer.start(int(hold * 1000))
-
-    def _status_released(self, event):
-        self._exit_timer.stop()
-
-    def _arm_exit(self):
-        """Held long enough — offer the exit, but require a second tap."""
-        self._exit_armed = True
-        self.status_label.setText('✕ CLOSE?')
-        self.status_label.setStyleSheet(
-            'color: #ffffff; background: #aa0000; padding: 8px 15px; '
-            'border-radius: 10px; font-size: 18px; font-weight: bold;')
-        self._disarm_timer.start(5000)    # think better of it and it goes away
-
-    def _disarm_exit(self):
-        self._exit_armed = False
-        self._render_status()
-
-    def request_exit(self):
-        self._exit_armed = False
-        self._disarm_timer.stop()
-        print('Exit confirmed from the touchscreen', flush=True)
-        # Stopping the service is the only real exit: the unit is Restart=always,
-        # so simply quitting would bring it back in five seconds.
-        try:
-            subprocess.Popen(['systemctl', '--user', 'stop', 'caption'],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-        # If it was not started as a service, nothing will arrive to stop us.
-        QTimer.singleShot(1500, QApplication.quit)
-
     def _render_status(self):
-        if self._exit_armed:
+        if getattr(self, '_exit', None) and self._exit.armed:
             return                        # do not paint over the confirmation
         text, style = status_display(self._status, self._speaking)
         self.status_label.setText(text)
@@ -2357,6 +2369,7 @@ class CaptionView(QWidget):
 
         self.status_label = QLabel('')
         top_bar.addWidget(self.status_label)
+        self._exit = ExitGesture(self.status_label, self._render_status)
 
         layout.addLayout(top_bar)
 
@@ -2509,6 +2522,8 @@ class CaptionView(QWidget):
         self._render_status()
 
     def _render_status(self):
+        if getattr(self, '_exit', None) and self._exit.armed:
+            return                        # do not paint over the confirmation
         text, style = status_display(self._status, self._speaking)
         self.status_label.setText(text)
         self.status_label.setStyleSheet(style)
@@ -2956,7 +2971,7 @@ class MainWindow(QMainWindow):
             # Same path as the touch gesture. Quitting alone was misleading:
             # the unit is Restart=always, so the app reappeared five seconds
             # later and Escape looked broken.
-            self.caption_view.request_exit()
+            request_exit()
 
 
 def clear_stale_state():
