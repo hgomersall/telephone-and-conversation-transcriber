@@ -2676,7 +2676,12 @@ class CaptionView(QWidget):
             # document already ends with exactly this text, something else
             # committed it first — a restart, or a late final from a session
             # that has gone — and appending would show it twice.
-            if is_final and text and self.text.toPlainText().rstrip().endswith(text):
+            # Only for a phrase. A repeated *utterance* is what this guards
+            # against, and those are several words; matching on something short
+            # would silently drop punctuation, since a bare "." matches the end
+            # of the document almost every time.
+            if (is_final and ' ' in text
+                    and self.text.toPlainText().rstrip().endswith(text)):
                 return
             self._trim_if_needed()
             c.movePosition(QTextCursor.MoveOperation.End)

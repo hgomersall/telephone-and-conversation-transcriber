@@ -60,7 +60,13 @@ DEFAULTS = {
     # used for live captions.)
     'speechmatics_model': 'enhanced',
     # Delay between the end of a word and its final transcript. Their range is
-    # 0.7-4s; lower is more responsive, which is what this device needs.
+    # 0.7-4s and their default is 4; ours is low because this device is for
+    # following a conversation as it happens.
+    #
+    # It is a trade against punctuation. The model places full stops and commas
+    # from surrounding context, so less time means less context — odd
+    # mid-sentence full stops are the usual symptom. Raise it towards 2-4 if
+    # the punctuation matters more than the wait.
     'speechmatics_max_delay': 1.0,
     # Diarization stability controls, which Deepgram does not offer. Deepgram's
     # labels proved unusable here once audio was gated, so these are worth

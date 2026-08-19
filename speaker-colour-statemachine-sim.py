@@ -52,7 +52,9 @@ class Sim:
             return
 
         if self.prov is None:
-            if is_final and text and self.doc.rstrip().endswith(text):
+            # Phrases only — see caption_app. A bare "." matches the end of
+            # the document almost every time.
+            if is_final and ' ' in text and self.doc.rstrip().endswith(text):
                 return                      # already there; do not append twice
             self.prov = len(self.doc)
         else:
@@ -370,6 +372,24 @@ def test_no_duplication_across_message_orders():
             if count != 1:
                 bad.append(f'{name} / {pos}: {count}x -> {s.doc!r}')
     check('no ordering duplicates the utterance', not bad, '\n        '.join(bad))
+
+
+def test_duplicate_guard_does_not_eat_punctuation():
+    """The repeat guard must not swallow a bare punctuation segment.
+
+    Speechmatics emits punctuation as its own result, and a "." matches the end
+    of the document almost every time — so a guard that matched on any text
+    would drop it and quietly mangle the transcript.
+    """
+    s = Sim()
+    s.add_segment('that is fine', True, 0)
+    s.add_segment('.', True, 0)
+    check('punctuation survives the guard', s.doc.rstrip().endswith('fine.'), s.doc)
+
+    s = Sim()
+    s.add_segment('yes.', True, 0)
+    s.add_segment('.', True, 0)
+    check('punctuation after punctuation survives', s.doc.count('.') == 2, s.doc)
 
 
 def test_empty_final_cannot_cancel_a_break():
