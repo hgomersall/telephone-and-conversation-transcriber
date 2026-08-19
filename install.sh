@@ -127,6 +127,19 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     # Repoint first. An existing install may have been cloned from somewhere
     # else — upstream, or an older fork — and a bare `git pull` would quietly
     # fetch from there, report success, and change nothing.
+    #
+    # Say so when it changes. Whichever install.sh you run repoints the
+    # checkout at that script's repository, so running someone else's
+    # installer moves where this Pi takes updates from. That should never be
+    # silent.
+    CURRENT_URL="$(git -C "$INSTALL_DIR" remote get-url origin 2>/dev/null || echo '')"
+    if [ -n "$CURRENT_URL" ] && [ "$CURRENT_URL" != "$REPO_URL" ]; then
+        warn "This install currently follows:"
+        warn "    $CURRENT_URL"
+        warn "  and will now follow:"
+        warn "    $REPO_URL"
+        warn "  Updates will come from there from now on."
+    fi
     git -C "$INSTALL_DIR" remote set-url origin "$REPO_URL" 2>/dev/null \
         || warn "Couldn't update the repository address"
     git -C "$INSTALL_DIR" fetch --quiet origin "$BRANCH" \
