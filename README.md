@@ -394,6 +394,8 @@ On Deepgram, gating has been *observed* to make speaker labels collapse to one s
 
 Note that a diarizer needs several seconds of a voice to model it. Short interjections tend not to get their own colour on any provider.
 
+Turning speaker colours off also stops diarization being requested, so the blank line between speakers goes with it — there are no speaker labels left to break on. Utterance breaks are unaffected, so text still separates, just less strongly.
+
 Intermittent is worse than broken here. Colour means "someone else is speaking", so if it only sometimes means that, the *absence* of a colour change stops meaning anything either, and a reader who cannot hear the room has no way to tell a good run from a bad one.
 
 `speaker_colours` wins by default, and the app says so at startup rather than quietly giving you a broken version of one:

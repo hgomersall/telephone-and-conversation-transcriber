@@ -115,8 +115,15 @@ DEFAULTS = {
     # established. If colours stop tracking the speaker on Deepgram, turn off
     # vad_gate (or this, to keep the saving).
     #
+    # Turning this off stops diarization being requested at all, which also
+    # removes the blank line between speakers: with no speaker labels there is
+    # no speaker change to break on. Utterance breaks are unaffected, so the
+    # text still separates, just less strongly. That is the trade — diarization
+    # is billed separately, so requesting it purely for paragraph breaks would
+    # be paying for a layout hint.
+    #
     # Set this false if the cost saving matters more than knowing who is
-    # talking. Phone calls are gated regardless — they never had diarization.
+    # talking. Phone calls are unaffected — they never had diarization.
     'speaker_colours': True,
 
     # Gating the audio stream. Both providers bill on audio sent rather than on

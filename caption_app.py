@@ -1091,7 +1091,12 @@ def deepgram_thread():
         ]
         # Diarization is billed separately and is pointless on the phone tap,
         # which already has exactly one remote talker.
-        diarize = bool(CONFIG.get('speaker_colours', True)) and not state.use_phone_audio
+        # SPEAKER_COLOURS, not CONFIG: the touch toggle mutates the global and
+        # then rebuilds the session, so reading config here meant the toggle
+        # changed the display without changing what was requested — turning it
+        # on when config said false gave no labels at all, and turning it off
+        # kept paying for diarization.
+        diarize = SPEAKER_COLOURS and not state.use_phone_audio
 
         # Gating has been observed to make Deepgram's speaker labels collapse
         # to 0, intermittently. That was never pinned down, and the same claim
@@ -1400,7 +1405,12 @@ def speechmatics_thread():
 
         # Same rule as Deepgram: pointless on the phone tap, which has exactly
         # one remote talker, and billed separately.
-        diarize = bool(CONFIG.get('speaker_colours', True)) and not state.use_phone_audio
+        # SPEAKER_COLOURS, not CONFIG: the touch toggle mutates the global and
+        # then rebuilds the session, so reading config here meant the toggle
+        # changed the display without changing what was requested — turning it
+        # on when config said false gave no labels at all, and turning it off
+        # kept paying for diarization.
+        diarize = SPEAKER_COLOURS and not state.use_phone_audio
 
         # `model` is the live field; `operating_point` is deprecated but still
         # accepted. An invalid value is a protocol_error that kills the session
